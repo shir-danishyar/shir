@@ -1,0 +1,1091 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Shir — How It All Connects</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+
+<style>
+  :root {
+    --bg:        #0A0F1C;
+    --bg-2:      #111827;
+    --bg-3:      #1A2236;
+    --line:      #2A3349;
+    --txt:       #E5E9F0;
+    --txt-dim:   #94A3B8;
+    --txt-mute:  #64748B;
+    --cyan:      #00D4FF;
+    --amber:     #FFB400;
+    --green:     #4ADE80;
+    --rose:      #F87171;
+    --violet:    #A78BFA;
+    --pink:      #F472B6;
+    --accent:    var(--cyan);
+    --mono:      "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans:      -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: var(--sans);
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header.hero {
+    background: linear-gradient(135deg, #0A0F1C 0%, #1A2236 60%, #0F172A 100%);
+    border-bottom: 1px solid var(--line);
+    padding: 64px 48px 56px;
+  }
+  header.hero .eyebrow {
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin-bottom: 18px;
+  }
+  header.hero h1 {
+    margin: 0 0 12px;
+    font-size: 44px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    background: linear-gradient(120deg, #fff 30%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  header.hero .subtitle {
+    color: var(--txt-dim);
+    font-size: 18px;
+    max-width: 820px;
+    margin: 0 0 32px;
+  }
+  .change-banner {
+    margin-top: 18px;
+    padding: 16px 20px;
+    background: rgba(0, 212, 255, 0.08);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+    font-family: var(--mono);
+    font-size: 14px;
+    color: var(--txt);
+  }
+  .change-banner strong { color: var(--accent); }
+
+  .stat-row {
+    display: flex; gap: 32px; flex-wrap: wrap;
+    border-top: 1px solid var(--line);
+    padding-top: 24px; margin-top: 24px;
+  }
+  .stat { display: flex; flex-direction: column; min-width: 120px; }
+  .stat .label {
+    font-family: var(--mono); font-size: 11px;
+    letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--txt-mute); margin-bottom: 6px;
+  }
+  .stat .value {
+    font-family: var(--mono); font-size: 17px;
+    color: var(--accent); font-weight: 500;
+  }
+
+  nav.toc {
+    position: sticky; top: 0; z-index: 50;
+    background: rgba(10, 15, 28, 0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 48px;
+    display: flex; gap: 24px; flex-wrap: wrap;
+    font-family: var(--mono); font-size: 13px;
+  }
+  nav.toc a {
+    color: var(--txt-dim); text-decoration: none;
+    transition: color 0.15s;
+  }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc a span { color: var(--txt-mute); margin-right: 6px; }
+
+  main { padding: 0 48px 96px; max-width: 1280px; margin: 0 auto; }
+  section { margin: 80px 0; scroll-margin-top: 80px; }
+  section > h2 {
+    font-size: 30px; font-weight: 600; letter-spacing: -0.01em;
+    margin: 0 0 8px;
+    display: flex; align-items: baseline; gap: 16px;
+  }
+  section > h2 .num {
+    font-family: var(--mono); font-size: 14px; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    padding: 4px 10px; border-radius: 4px; font-weight: 500;
+  }
+  section > .lead {
+    color: var(--txt-dim); font-size: 17px;
+    max-width: 820px; margin: 0 0 32px;
+  }
+
+  h3 {
+    font-size: 19px; margin: 36px 0 12px;
+    color: var(--txt); font-weight: 600;
+  }
+  p { margin: 0 0 14px; }
+
+  .card {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 24px;
+    margin: 16px 0;
+  }
+  .card.cyan   { border-left: 3px solid var(--cyan); }
+  .card.amber  { border-left: 3px solid var(--amber); }
+  .card.green  { border-left: 3px solid var(--green); }
+  .card.rose   { border-left: 3px solid var(--rose); }
+  .card.violet { border-left: 3px solid var(--violet); }
+  .card.pink   { border-left: 3px solid var(--pink); }
+  .card h4 {
+    margin: 0 0 10px; font-size: 14px;
+    font-family: var(--mono);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .card.cyan h4   { color: var(--cyan); }
+  .card.amber h4  { color: var(--amber); }
+  .card.green h4  { color: var(--green); }
+  .card.rose h4   { color: var(--rose); }
+  .card.violet h4 { color: var(--violet); }
+  .card.pink h4   { color: var(--pink); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 1000px) {
+    .grid-2, .grid-3 { grid-template-columns: 1fr; }
+  }
+
+  .diagram {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 32px;
+    margin: 24px 0;
+    overflow-x: auto;
+  }
+  .diagram .caption {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--txt-mute); text-align: center;
+    margin-top: 16px; letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+  .mermaid { background: transparent !important; }
+  .mermaid svg { max-width: 100% !important; height: auto !important; }
+
+  pre[class*="language-"] {
+    background: #0d1424 !important;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 18px 20px !important;
+    font-size: 13px; line-height: 1.6;
+    margin: 12px 0; overflow-x: auto;
+  }
+  code { font-family: var(--mono); }
+  :not(pre) > code {
+    background: var(--bg-3);
+    color: var(--accent);
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 0.9em;
+    border: 1px solid var(--line);
+  }
+  .filepath {
+    display: inline-block;
+    font-family: var(--mono); font-size: 12px;
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+    padding: 4px 10px; border-radius: 4px;
+    margin-bottom: 8px;
+  }
+
+  details {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 12px 0;
+    overflow: hidden;
+  }
+  details[open] { border-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+  summary {
+    cursor: pointer;
+    padding: 16px 20px;
+    list-style: none;
+    display: flex; align-items: center; gap: 12px;
+    user-select: none;
+    transition: background 0.15s;
+    flex-wrap: wrap;
+  }
+  summary:hover { background: rgba(255,255,255,0.02); }
+  summary::-webkit-details-marker { display: none; }
+  summary::before {
+    content: "\25B8"; color: var(--accent);
+    font-size: 12px;
+    transition: transform 0.2s;
+  }
+  details[open] summary::before { transform: rotate(90deg); }
+  summary .step {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--txt-mute);
+    background: var(--bg-3);
+    padding: 3px 8px; border-radius: 3px;
+    letter-spacing: 0.06em;
+  }
+  summary .title-text { font-weight: 500; color: var(--txt); }
+  summary .file-ref {
+    font-family: var(--mono); font-size: 12px;
+    color: var(--txt-mute); margin-left: auto;
+  }
+  details .body { padding: 0 20px 20px; border-top: 1px solid var(--line); }
+  details .body .key {
+    margin-top: 14px; padding: 12px 14px;
+    background: color-mix(in srgb, var(--accent) 5%, transparent);
+    border-left: 2px solid var(--accent);
+    border-radius: 0 4px 4px 0;
+    color: var(--txt-dim); font-size: 14px;
+  }
+  details .body .key strong { color: var(--accent); font-weight: 500; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono); font-size: 11px;
+    padding: 3px 8px; border-radius: 3px;
+    letter-spacing: 0.04em; margin: 2px 4px 2px 0;
+  }
+  .tag.cyan   { background: rgba(0, 212, 255, 0.1); color: var(--cyan); border: 1px solid rgba(0, 212, 255, 0.3); }
+  .tag.amber  { background: rgba(255, 180, 0, 0.1); color: var(--amber); border: 1px solid rgba(255, 180, 0, 0.3); }
+  .tag.green  { background: rgba(74, 222, 128, 0.1); color: var(--green); border: 1px solid rgba(74, 222, 128, 0.3); }
+  .tag.rose   { background: rgba(248, 113, 113, 0.1); color: var(--rose); border: 1px solid rgba(248, 113, 113, 0.3); }
+
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 24px 0;
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  @media (max-width: 900px) { .compare { grid-template-columns: 1fr; } }
+  .compare > div { padding: 24px; }
+  .compare > div + div { border-left: 1px solid var(--line); }
+  .compare h4 {
+    margin: 0 0 12px; font-size: 13px;
+    font-family: var(--mono); letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .compare .old h4 { color: var(--rose); }
+  .compare .new h4 { color: var(--green); }
+  .compare ul { padding-left: 20px; margin: 0; }
+  .compare li { color: var(--txt-dim); margin: 6px 0; font-size: 14px; }
+
+  .rules {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px; margin: 20px 0;
+  }
+  @media (max-width: 1000px) { .rules { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 700px)  { .rules { grid-template-columns: 1fr; } }
+  .rule {
+    background: var(--bg-2);
+    border: 1px solid var(--line);
+    border-left: 3px solid var(--rose);
+    border-radius: 6px;
+    padding: 14px 16px;
+  }
+  .rule .num {
+    font-family: var(--mono); font-size: 11px;
+    color: var(--rose); letter-spacing: 0.08em;
+    margin-bottom: 4px;
+  }
+  .rule .name {
+    font-weight: 500; color: var(--txt);
+    font-size: 14px; margin-bottom: 4px;
+  }
+  .rule .desc {
+    color: var(--txt-dim); font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .tldr {
+    background: linear-gradient(135deg,
+      color-mix(in srgb, var(--accent) 8%, transparent),
+      rgba(0, 212, 255, 0.05));
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+    border-radius: 12px;
+    padding: 32px;
+  }
+  .tldr ol { margin: 16px 0 0; padding-left: 24px; }
+  .tldr ol li { padding: 8px 0; color: var(--txt); font-size: 16px; }
+  .tldr ol li strong { color: var(--accent); font-weight: 600; }
+
+  ul.tight { padding-left: 22px; }
+  ul.tight li { margin: 6px 0; color: var(--txt-dim); }
+  ul.tight li strong { color: var(--txt); font-weight: 500; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 16px 0; font-size: 14px;
+  }
+  th, td {
+    text-align: left; padding: 10px 14px;
+    border-bottom: 1px solid var(--line);
+  }
+  th {
+    color: var(--accent); font-family: var(--mono);
+    font-size: 12px; text-transform: uppercase;
+    letter-spacing: 0.06em; font-weight: 500;
+  }
+  td { color: var(--txt-dim); }
+  td code { font-size: 12px; }
+
+  footer {
+    margin-top: 96px;
+    padding: 32px 48px;
+    border-top: 1px solid var(--line);
+    color: var(--txt-mute);
+    font-family: var(--mono); font-size: 12px;
+  }
+  footer .files {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 8px 24px; margin-top: 12px;
+  }
+  footer .files div { color: var(--txt-dim); }
+  footer .files div::before { content: "\25B8 "; color: var(--accent); }
+  footer .files div.new::before { content: "\2605 "; color: var(--green); }
+</style>
+</head>
+
+<body>
+
+<header class="hero">
+  <div class="eyebrow">Shir &middot; iOS Music App &middot; Architecture</div>
+  <h1>How Shir Actually Works</h1>
+  <p class="subtitle">
+    Thirty-seven Swift files, two playback engines, one queue. This walks the whole thing
+    from the tap on a song to sound coming out, naming every file it passes through.
+    Read top to bottom in about fifteen minutes.
+  </p>
+
+  <div class="change-banner">
+    <strong>The one idea that explains everything:</strong> a track is either a YouTube video
+    or a file you own, and those two things obey completely different rules. Almost every
+    design decision below falls out of that single split.
+  </div>
+
+  <div class="stat-row">
+    <div class="stat"><span class="label">Swift files</span><span class="value">37</span></div>
+    <div class="stat"><span class="label">Unit tests</span><span class="value">51</span></div>
+    <div class="stat"><span class="label">UI tests</span><span class="value">11</span></div>
+    <div class="stat"><span class="label">Playback engines</span><span class="value">2</span></div>
+    <div class="stat"><span class="label">Min iOS</span><span class="value">17.0</span></div>
+    <div class="stat"><span class="label">Persistence</span><span class="value">one JSON file</span></div>
+  </div>
+</header>
+
+<nav class="toc">
+  <a href="#section-1"><span>01</span>The Big Idea</a>
+  <a href="#section-2"><span>02</span>Architecture</a>
+  <a href="#section-3"><span>03</span>Playing A Song</a>
+  <a href="#section-4"><span>04</span>Data Model</a>
+  <a href="#section-5"><span>05</span>Two Engines</a>
+  <a href="#section-6"><span>06</span>Code Walkthrough</a>
+  <a href="#section-7"><span>07</span>Rules</a>
+  <a href="#tldr"><span>08</span>Mental Model</a>
+</nav>
+
+<main>
+
+<!-- ════════════════════ 01 ════════════════════ -->
+<section id="section-1">
+  <h2><span class="num">01</span>The Big Idea</h2>
+  <p class="lead">
+    Before any code makes sense, you need the one distinction the whole app is built around.
+  </p>
+
+  <div class="card cyan">
+    <h4>A track has a source, and the source decides everything</h4>
+    <p>
+      Every song in Shir is a <code>Track</code>. Every <code>Track</code> carries a
+      <code>MediaSource</code>, which is either <code>.youtube</code> or
+      <code>.localFile</code>. That single enum decides which engine plays it, whether it
+      keeps playing when you lock the phone, whether ads appear, and whether the screen
+      shows a video or album art.
+    </p>
+    <p style="margin-bottom:0">
+      When you get lost in this codebase, come back to this question: <em>which source is
+      this track?</em> The answer explains the behaviour you are looking at.
+    </p>
+  </div>
+
+  <div class="grid-2">
+    <div class="card rose">
+      <h4>YouTube &mdash; a guest in someone else's house</h4>
+      <p>
+        The app does not own the audio. It asks YouTube's official embedded player to play a
+        video, and YouTube decides what happens &mdash; including ads. The app can say play,
+        pause, and seek. That is the whole vocabulary.
+      </p>
+      <p style="margin-bottom:0">
+        Because it is a guest, it plays by house rules: the video stays visible, and playback
+        stops when you leave the app.
+      </p>
+    </div>
+    <div class="card green">
+      <h4>Local files &mdash; your house, your rules</h4>
+      <p>
+        You imported the file. It sits in the app's own storage. Shir decodes it with
+        <code>AVPlayer</code>, so it can do everything a real music app does: background
+        playback, lock screen controls, AirPlay, and never an ad.
+      </p>
+      <p style="margin-bottom:0">
+        This is where uninterrupted listening comes from. Not from defeating YouTube.
+      </p>
+    </div>
+  </div>
+
+  <h3>The two-package split</h3>
+  <p>
+    The code is cut in half, and the cut is not arbitrary. Anything that could be tested
+    without a phone was pushed into a separate Swift package so it can be.
+  </p>
+
+  <table>
+    <thead>
+      <tr><th>Half</th><th>What lives there</th><th>Why it is separate</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>ShirKit/</code></td>
+        <td>Models, the library store, the playback queue, the YouTube API client</td>
+        <td>Imports no UI framework, so it compiles and tests on a Mac in 17 milliseconds. The tricky logic lives here on purpose.</td>
+      </tr>
+      <tr>
+        <td><code>Shir/</code></td>
+        <td>SwiftUI screens, the two engines, keychain, file import</td>
+        <td>Genuinely needs UIKit, AVFoundation and WebKit, so it can only run on a device or simulator.</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ════════════════════ 02 ════════════════════ -->
+<section id="section-2">
+  <h2><span class="num">02</span>Architecture &mdash; Every File, One Picture</h2>
+  <p class="lead">
+    Four layers. Data flows down when you act, and back up when something changes.
+  </p>
+
+  <div class="diagram">
+    <div class="mermaid">
+flowchart TB
+    classDef ui    fill:#1e3a5f,stroke:#00D4FF,color:#E5E9F0
+    classDef app   fill:#1a2236,stroke:#FFB400,color:#E5E9F0
+    classDef kit   fill:#0d3a2e,stroke:#4ADE80,color:#E5E9F0
+    classDef ext   fill:#2d1b3d,stroke:#A78BFA,color:#E5E9F0
+
+    subgraph L1["SwiftUI screens — what you see"]
+      ROOT["RootTabView<br/>three tabs plus mini player"]:::ui
+      LIB["LibraryView<br/>PlaylistDetailView"]:::ui
+      SRCH["SearchView<br/>SearchViewModel"]:::ui
+      NOW["NowPlayingView<br/>QueueView — MiniPlayerBar"]:::ui
+      SET["SettingsView"]:::ui
+    end
+
+    subgraph L2["App layer — the wiring"]
+      ENV["AppEnvironment<br/>builds everything once"]:::app
+      COORD["PlaybackCoordinator<br/>owns the queue — picks an engine"]:::app
+      YTE["YouTubePlayerEngine<br/>drives a WKWebView"]:::app
+      LOC["LocalAudioEngine<br/>drives an AVPlayer"]:::app
+      KEY["APIKeyStore<br/>keychain"]:::app
+      IMP["LocalMediaImporter<br/>copy plus read metadata"]:::app
+    end
+
+    subgraph L3["ShirKit — pure logic, no UI, fully tested"]
+      STORE["LibraryStore<br/>playlists and saved tracks"]:::kit
+      QUEUE["PlaybackQueue<br/>order — cursor — shuffle — repeat"]:::kit
+      YTC["YouTubeSearchClient<br/>Data API v3"]:::kit
+      MODEL["Track — Playlist — MediaSource"]:::kit
+    end
+
+    subgraph L4["Outside the app"]
+      WEB["YouTube IFrame Player<br/>inside WKWebView"]:::ext
+      AV["AVPlayer plus AVAudioSession"]:::ext
+      JSON["Documents — library.json"]:::ext
+      API["googleapis.com YouTube Data API"]:::ext
+      LOCK["Lock screen — MPNowPlayingInfoCenter"]:::ext
+    end
+
+    ROOT --> LIB
+    ROOT --> SRCH
+    ROOT --> NOW
+    ROOT --> SET
+
+    ENV -.->|injected into every view| ROOT
+    ENV --> STORE
+    ENV --> COORD
+    ENV --> KEY
+    ENV --> YTC
+
+    LIB -->|play these tracks| COORD
+    LIB -->|create — add — reorder| STORE
+    LIB -->|import files| IMP
+    SRCH -->|search text| YTC
+    SRCH -->|save and play result| COORD
+    NOW -->|play pause seek next| COORD
+    SET --> KEY
+
+    COORD --> QUEUE
+    COORD -->|source is youtube| YTE
+    COORD -->|source is localFile| LOC
+    COORD --> LOCK
+
+    YTE <-->|JavaScript bridge| WEB
+    LOC --> AV
+    IMP --> STORE
+    STORE --> JSON
+    STORE --> MODEL
+    QUEUE --> MODEL
+    YTC --> API
+    KEY -.->|reads key per call| YTC
+    </div>
+    <div class="caption">FIG 2.1 &mdash; The whole app. Solid arrows are calls, dotted arrows are dependency injection.</div>
+  </div>
+
+  <div class="card amber">
+    <h4>The one file that ties it together</h4>
+    <p style="margin-bottom:0">
+      <span class="filepath">Shir/App/AppEnvironment.swift</span><br/>
+      Everything is constructed exactly once here and handed down through SwiftUI's
+      environment. No view ever reaches for a global or a singleton. If you want to know
+      what the app is made of, this file is the parts list.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════ 03 ════════════════════ -->
+<section id="section-3">
+  <h2><span class="num">03</span>Playing A Song, Step By Step</h2>
+  <p class="lead">
+    You tap the third song in a playlist. Here is every hop between that tap and the sound.
+  </p>
+
+  <div class="diagram">
+    <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant You
+    participant View as PlaylistDetailView
+    participant Coord as PlaybackCoordinator
+    participant Queue as PlaybackQueue
+    participant Eng as YouTubePlayerEngine
+    participant Web as WKWebView — IFrame player
+
+    You->>View: tap song number three
+    View->>Coord: play tracks, startingAt 2
+    Coord->>Queue: load tracks, startingAt 2
+    Note over Queue: stores the order<br/>sets cursor to index 2<br/>shuffles first if shuffle is on
+    Queue-->>Coord: current track
+    Coord->>Coord: startCurrentTrack
+    Note over Coord: stops the OTHER engine first<br/>so two songs can never overlap
+    Coord->>Eng: load track, autoplay true
+    Eng->>Web: player.loadVideoById
+    Web-->>Eng: state 1 — playing
+    Eng-->>Coord: onStateChange playing
+    Note over Coord: status becomes playing<br/>SwiftUI redraws the mini player
+    loop every 500 ms while playing
+      Web-->>Eng: progress — position and duration
+      Eng-->>Coord: onProgress
+      Coord->>Coord: update scrubber and lock screen
+    end
+    Web-->>Eng: state 0 — ended
+    Eng-->>Coord: onStateChange ended
+    Coord->>Queue: advanceAtEndOfTrack
+    Queue-->>Coord: next track or nil
+    Note over Coord: nil means the queue ran out<br/>so playback simply stops
+    </div>
+    <div class="caption">FIG 3.1 &mdash; Tap to sound, and the automatic advance at the end.</div>
+  </div>
+
+  <div class="card cyan">
+    <h4>Why the callbacks point upward</h4>
+    <p style="margin-bottom:0">
+      Notice the direction: the view calls <em>down</em> into the coordinator, but the engine
+      reports <em>up</em> through closures (<code>onStateChange</code>,
+      <code>onProgress</code>, <code>onError</code>). The engine knows nothing about the
+      coordinator, and the coordinator knows nothing about SwiftUI. Each layer only depends on
+      the one below it, which is why you can swap the engine without touching a view.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════ 04 ════════════════════ -->
+<section id="section-4">
+  <h2><span class="num">04</span>The Data Model</h2>
+  <p class="lead">
+    Five types carry all the state. Four of them are plain values you could print on paper.
+  </p>
+
+  <div class="diagram">
+    <div class="mermaid">
+classDiagram
+    class MediaSource {
+      youtube videoID
+      localFile fileName
+      +Bool supportsBackgroundPlayback
+    }
+    class Track {
+      +String id
+      +String title
+      +String artist
+      +MediaSource source
+      +URL artworkURL
+      +TimeInterval duration
+      +Date addedAt
+    }
+    class Playlist {
+      +UUID id
+      +String name
+      +list trackIDs
+      +Int artworkSeed
+    }
+    class Library {
+      +dict tracks
+      +list playlists
+    }
+    class PlaybackQueue {
+      +list items
+      +Int currentIndex
+      +Bool isShuffled
+      +RepeatMode repeatMode
+      +advanceAtEndOfTrack()
+      +skipForward()
+      +toggleShuffle()
+    }
+
+    Track *-- MediaSource : has one
+    Library o-- Track : owns all
+    Library o-- Playlist : owns all
+    Playlist ..> Track : refers by id
+    PlaybackQueue o-- Track : holds a copy
+    </div>
+    <div class="caption">FIG 4.1 &mdash; Everything the app remembers.</div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card green">
+      <h4>Why playlists store IDs, not tracks</h4>
+      <p style="margin-bottom:0">
+        A <code>Playlist</code> holds <code>trackIDs</code>, not <code>Track</code> values.
+        So when a track is edited once &mdash; a duration filled in, a title corrected &mdash;
+        it updates everywhere it appears. Storing copies would leave you with the same song
+        looking different in two playlists.
+      </p>
+    </div>
+    <div class="card amber">
+      <h4>Why the ID is built from the source</h4>
+      <p style="margin-bottom:0">
+        A track's ID is <code>yt:VIDEOID</code> or <code>file:NAME</code>. The same YouTube
+        video added from two different screens produces the same ID, so it lands in the
+        library once instead of twice. Identity comes from where the audio is, not from a
+        random UUID.
+      </p>
+    </div>
+  </div>
+
+  <h3>Where it is saved</h3>
+  <p>
+    The entire library &mdash; every playlist, every saved track &mdash; is one JSON file at
+    <code>Documents/library.json</code>. Every edit rewrites the whole file, atomically. That
+    sounds wasteful and is deliberately not: at a few thousand tracks a full re-encode is
+    faster than the bookkeeping a partial-write scheme would need, and it can never leave a
+    half-written file behind after a crash.
+  </p>
+</section>
+
+<!-- ════════════════════ 05 ════════════════════ -->
+<section id="section-5">
+  <h2><span class="num">05</span>The Two Engines</h2>
+  <p class="lead">
+    Same interface, opposite capabilities. The asymmetry is the point, not an oversight.
+  </p>
+
+  <div class="compare">
+    <div class="old">
+      <h4>YouTubePlayerEngine</h4>
+      <ul>
+        <li>Drives a hidden-from-you <code>WKWebView</code> running YouTube's IFrame player</li>
+        <li>Talks to it by evaluating JavaScript: <code>loadVideoById</code>, <code>playVideo</code>, <code>seekTo</code></li>
+        <li>Hears back through a JavaScript message bridge posting state and progress</li>
+        <li>Video stays visible at 16:9 in <code>NowPlayingView</code></li>
+        <li>Ads are whatever YouTube serves &mdash; untouched</li>
+        <li><strong>Pauses when the app backgrounds</strong></li>
+        <li>No lock screen controls</li>
+      </ul>
+    </div>
+    <div class="new">
+      <h4>LocalAudioEngine</h4>
+      <ul>
+        <li>Drives an <code>AVPlayer</code> reading a file from the app's own storage</li>
+        <li>Talks to it directly in Swift &mdash; no bridge, no JavaScript</li>
+        <li>Hears back through a periodic time observer and end-of-item notifications</li>
+        <li>Shows album art instead of video</li>
+        <li>No ads, ever</li>
+        <li><strong>Keeps playing in the background</strong></li>
+        <li>Full lock screen controls and AirPlay</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="card cyan">
+    <h4>What lets the coordinator treat them the same</h4>
+    <p style="margin-bottom:0">
+      Both conform to one small protocol in
+      <span class="filepath">Shir/Playback/PlaybackEngine.swift</span> &mdash; five methods
+      (<code>load</code>, <code>play</code>, <code>pause</code>, <code>seek</code>,
+      <code>stop</code>) and three callbacks. The coordinator holds both and picks one per
+      track. Adding a third source later, say Apple Music, means writing one more conformance
+      and touching nothing else.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════ 06 ════════════════════ -->
+<section id="section-6">
+  <h2><span class="num">06</span>Code Walkthrough</h2>
+  <p class="lead">
+    Six snippets, copied verbatim from the files. Open them in order and you have read the
+    spine of the app.
+  </p>
+
+  <details open>
+    <summary>
+      <span class="step">STEP 1</span>
+      <span class="title-text">The fork in the road</span>
+      <span class="file-ref">ShirKit/Models/MediaSource.swift &middot; 8</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">public enum MediaSource: Codable, Hashable, Sendable {
+    case youtube(videoID: String)
+    case localFile(fileName: String)
+
+    /// Whether this source is allowed to keep playing with the screen off.
+    ///
+    /// Only owned files qualify. Backgrounding the IFrame player to get
+    /// audio-only YouTube playback violates the YouTube API Services Terms,
+    /// so the coordinator pauses YouTube tracks on resign-active instead.
+    public var supportsBackgroundPlayback: Bool {
+        switch self {
+        case .youtube: return false
+        case .localFile: return true
+        }
+    }
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> Twelve lines, and they decide the behaviour of the entire
+        app &mdash; every asymmetry later in the code traces back to this enum.
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>
+      <span class="step">STEP 2</span>
+      <span class="title-text">Everything is built once, here</span>
+      <span class="file-ref">Shir/App/AppEnvironment.swift &middot; 21</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">init() {
+    let apiKeys = APIKeyStore()
+    self.apiKeys = apiKeys
+    if Self.isUITesting { apiKeys.clear() }
+
+    let persistence: LibraryPersisting = Self.isUITesting
+        ? FileLibraryPersistence(
+            url: FileManager.default.temporaryDirectory
+                .appendingPathComponent("uitest-\(UUID().uuidString)")
+                .appendingPathComponent("library.json")
+          )
+        : FileLibraryPersistence()
+    library = LibraryStore(persistence: persistence)
+    playback = PlaybackCoordinator()
+
+    // The client reads the key on every call rather than capturing it, so
+    // pasting a key in Settings takes effect without rebuilding anything.
+    youtube = YouTubeSearchClient(apiKeyProvider: { [weak apiKeys] in
+        MainActor.assumeIsolated { apiKeys?.key }
+    })
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> The API key is read through a closure on every request, not
+        captured once &mdash; which is why typing a key in Settings works immediately with no
+        restart.
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>
+      <span class="step">STEP 3</span>
+      <span class="title-text">How a track finds its engine</span>
+      <span class="file-ref">Shir/Playback/PlaybackCoordinator.swift &middot; 174</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">private func engine(for track: Track?) -&gt; PlaybackEngine? {
+    guard let track else { return nil }
+    switch track.source {
+    case .youtube: return youtubeEngine
+    case .localFile: return localEngine
+    }
+}
+
+/// Loads whatever the cursor points at, stopping the other engine so two
+/// songs can never play over each other.
+private func startCurrentTrack(autoplay: Bool) {
+    guard let track = queue.current else { return }
+    position = 0
+    duration = track.duration ?? 0
+
+    switch track.source {
+    case .youtube:
+        localEngine.stop()
+        youtubeEngine.load(track, autoplay: autoplay)
+    case .localFile:
+        youtubeEngine.stop()
+        localEngine.load(track, autoplay: autoplay)
+    }
+    updateNowPlayingInfo()
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> Stopping the other engine before starting one is what stops
+        a YouTube video and an MP3 playing over each other when a queue mixes both sources.
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>
+      <span class="step">STEP 4</span>
+      <span class="title-text">The subtle bug this prevents</span>
+      <span class="file-ref">Shir/Playback/PlaybackCoordinator.swift &middot; 215</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">/// Ignores events from the engine that is not currently in charge — a
+/// stopping engine emits a final `.idle` that would otherwise clobber the
+/// state of the track just started on the other one.
+private func isActive(_ engine: PlaybackEngine) -&gt; Bool {
+    guard let active = self.engine(for: currentTrack) else { return false }
+    return active === engine
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> Without this guard, switching from a file to a YouTube track
+        would show "paused" a split second after starting, because the dying engine's last
+        gasp arrives after the new engine's first event.
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>
+      <span class="step">STEP 5</span>
+      <span class="title-text">Why Next and end-of-song are different</span>
+      <span class="file-ref">ShirKit/Playback/PlaybackQueue.swift &middot; 90</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">/// Advances for a natural end-of-song.
+///
+/// `.one` repeats the current track, `.all` wraps to the start, `.off`
+/// stops at the end and reports nil so the coordinator can halt playback.
+@discardableResult
+public mutating func advanceAtEndOfTrack() -&gt; Track? {
+    guard let currentIndex, !items.isEmpty else { return nil }
+    if repeatMode == .one { return items[currentIndex] }
+    return step(to: currentIndex + 1, wrapping: repeatMode == .all)
+}
+
+/// Advances for an explicit tap on Next.
+///
+/// Deliberately ignores `.one` — a user pressing Next wants the next song,
+/// not the same one again. It still wraps, because reaching the end of a
+/// queue via the button feels broken if nothing happens.
+@discardableResult
+public mutating func skipForward() -&gt; Track? {
+    guard let currentIndex, !items.isEmpty else { return nil }
+    return step(to: currentIndex + 1, wrapping: true)
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> Two nearly identical methods exist because a song ending by
+        itself and you pressing Next mean different things &mdash; with repeat-one on, only one
+        of them should replay.
+      </div>
+    </div>
+  </details>
+
+  <details>
+    <summary>
+      <span class="step">STEP 6</span>
+      <span class="title-text">Talking to YouTube through JavaScript</span>
+      <span class="file-ref">Shir/Playback/YouTubePlayerEngine.swift &middot; 85</span>
+    </summary>
+    <div class="body">
+<pre><code class="language-swift">private func run(_ javaScript: String) {
+    guard isPlayerReady else {
+        pendingCommands.append(javaScript)
+        return
+    }
+    webView.evaluateJavaScript(javaScript) { [weak self] _, error in
+        // Commands fired while the player swaps videos can fail harmlessly;
+        // only surface a failure that leaves playback stuck.
+        guard let error,
+              (error as NSError).code != WKError.javaScriptExceptionOccurred.rawValue
+        else { return }
+        Task { @MainActor in self?.onError?(error.localizedDescription) }
+    }
+}</code></pre>
+      <div class="key">
+        <strong>Remember:</strong> The IFrame player takes a moment to load, so commands sent
+        too early are queued and replayed on ready &mdash; without that buffer, tapping play
+        immediately after launch would silently do nothing.
+      </div>
+    </div>
+  </details>
+</section>
+
+<!-- ════════════════════ 07 ════════════════════ -->
+<section id="section-7">
+  <h2><span class="num">07</span>Rules That Must Not Break</h2>
+  <p class="lead">
+    Each of these looks like a bug if you do not know why it is there. Changing any one of
+    them is what makes the app unshippable or subtly broken.
+  </p>
+
+  <div class="rules">
+    <div class="rule">
+      <div class="num">RULE 1</div>
+      <div class="name">The YouTube player stays visible</div>
+      <div class="desc">Never give the web view zero size or cover it with artwork. A hidden embedded player is the thing App Store review rejects.</div>
+    </div>
+    <div class="rule">
+      <div class="num">RULE 2</div>
+      <div class="name">YouTube pauses in the background</div>
+      <div class="desc">The audio background mode exists for imported files only. Do not "fix" YouTube so it plays with the screen off.</div>
+    </div>
+    <div class="rule">
+      <div class="num">RULE 3</div>
+      <div class="name">Search stays filtered</div>
+      <div class="desc">Requests send videoEmbeddable true and the music category. A test asserts both, because dropping them surfaces videos that legally cannot play here.</div>
+    </div>
+    <div class="rule">
+      <div class="num">RULE 4</div>
+      <div class="name">The queue never learns about engines</div>
+      <div class="desc">PlaybackQueue is a pure value type. It is only cheap to test because it has no idea audio exists.</div>
+    </div>
+    <div class="rule">
+      <div class="num">RULE 5</div>
+      <div class="name">Do not name a collection method move</div>
+      <div class="desc">SwiftUI defines its own move on collections. The package's version is moveElements, because two candidates make every call site ambiguous.</div>
+    </div>
+    <div class="rule">
+      <div class="num">RULE 6</div>
+      <div class="name">Never type into a field without a gate</div>
+      <div class="desc">SwiftUI focuses fields asynchronously, and typeText into an unfocused field is silently dropped. Wait for a real signal, never a sleep.</div>
+    </div>
+  </div>
+
+  <div class="card amber">
+    <h4>Where the rules are written down</h4>
+    <p style="margin-bottom:0">
+      All six live in <span class="filepath">CLAUDE.md</span> at the project root, next to the
+      reasoning. That file is the first thing to read before changing anything in here.
+    </p>
+  </div>
+</section>
+
+<!-- ════════════════════ TL;DR ════════════════════ -->
+<section id="tldr">
+  <h2><span class="num">08</span>Mental Model &mdash; Lock It In</h2>
+
+  <div class="tldr">
+    <ol>
+      <li><strong>Source decides everything.</strong> Ask which <code>MediaSource</code> a track has and you can predict every behaviour: which engine plays it, whether it survives backgrounding, whether ads appear.</li>
+      <li><strong>The coordinator is the only thing that knows both worlds.</strong> Views talk down to it, engines report up to it, and it is the single place where the queue meets audio.</li>
+      <li><strong>ShirKit is the tested half.</strong> If logic can be written without importing UIKit, it belongs there &mdash; that is why 51 tests run in 17 milliseconds instead of booting a simulator.</li>
+      <li><strong>State flows one way.</strong> Tap goes down through view to coordinator to engine; change comes back up through closures. No layer reaches sideways or upward.</li>
+      <li><strong>Uninterrupted listening comes from files you own.</strong> The app never fights YouTube for it, because the fight is the part that cannot ship.</li>
+    </ol>
+  </div>
+
+  <h3 style="margin-top: 48px;">When you next change something, ask</h3>
+  <ul class="tight">
+    <li>Does this logic need a phone to run? If not, it belongs in <code>ShirKit</code> with a unit test.</li>
+    <li>Does this change make the YouTube player less visible, or keep it alive in the background? If yes, stop.</li>
+    <li>Am I adding a third audio source? Then conform to <code>PlaybackEngine</code> and add a case to <code>MediaSource</code> &mdash; the compiler will point at every place that needs updating.</li>
+    <li>Am I about to write a <code>sleep</code> in a UI test? There is a real signal to wait for instead.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  <div>FILES TO READ &mdash; IN ORDER OF IMPORTANCE</div>
+  <div class="files">
+    <div class="new">CLAUDE.md &mdash; the rules and the reasoning</div>
+    <div class="new">ShirKit/Sources/ShirKit/Models/MediaSource.swift &mdash; the idea in 24 lines</div>
+    <div class="new">Shir/Playback/PlaybackCoordinator.swift &mdash; where it all meets</div>
+    <div>Shir/App/AppEnvironment.swift &mdash; the parts list</div>
+    <div>ShirKit/Sources/ShirKit/Playback/PlaybackQueue.swift &mdash; order, cursor, shuffle</div>
+    <div>Shir/Playback/YouTubePlayerEngine.swift &mdash; the JavaScript bridge</div>
+    <div>Shir/Playback/LocalAudioEngine.swift &mdash; AVPlayer and the lock screen</div>
+    <div>ShirKit/Sources/ShirKit/Library/LibraryStore.swift &mdash; playlists and persistence</div>
+    <div>ShirKit/Sources/ShirKit/YouTube/YouTubeSearchClient.swift &mdash; the Data API</div>
+    <div>Shir/Features/ &mdash; one folder per screen</div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: {
+      darkMode: true,
+      background: '#111827',
+      primaryColor: '#1a2236',
+      primaryTextColor: '#E5E9F0',
+      primaryBorderColor: '#00D4FF',
+      lineColor: '#94A3B8',
+      secondaryColor: '#2d1b3d',
+      tertiaryColor: '#0d3a2e',
+      fontFamily: 'JetBrains Mono, SF Mono, Menlo, monospace'
+    },
+    flowchart: { curve: 'basis', padding: 20, useMaxWidth: true },
+    sequence: { actorMargin: 60, boxMargin: 12, noteMargin: 16 }
+  });
+</script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-swift.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+<script>
+  // prism-core highlights on DOMContentLoaded, which can fire before the Swift
+  // grammar finishes loading — leaving every snippet unstyled. Re-run once all
+  // component scripts are in.
+  window.addEventListener('load', function () {
+    if (window.Prism) { Prism.highlightAll(); }
+  });
+</script>
+
+</body>
+</html>
