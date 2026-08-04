@@ -1,0 +1,79 @@
+name: Riff
+options:
+  bundleIdPrefix: com.shirhussain
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  RiffKit:
+    path: RiffKit
+
+targets:
+  Riff:
+    type: application
+    platform: iOS
+    sources:
+      - path: Riff
+    dependencies:
+      - package: RiffKit
+        product: RiffKit
+    info:
+      path: Riff/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Riff
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        # Background audio is for imported files only. YouTube playback is
+        # paused when the app backgrounds — see PlaybackCoordinator.
+        UIBackgroundModes:
+          - audio
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shirhussain.riff
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        # Lets the simulator build run without a signing identity configured.
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""
+        CODE_SIGNING_ALLOWED: NO
+
+  RiffUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: Tests/RiffUITests
+    dependencies:
+      - target: Riff
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.shirhussain.riff.uitests
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+
+schemes:
+  Riff:
+    build:
+      targets:
+        Riff: all
+        RiffUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - RiffUITests
