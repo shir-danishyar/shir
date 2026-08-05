@@ -30,6 +30,8 @@ struct ContentView: View {
 
             HStack(spacing: 10) {
                 Button("Play") { controller.play() }
+                Button("Unmute") { controller.unmute() }
+                    .buttonStyle(.borderedProminent)
                 Button("Next") { controller.advance(reason: "manual next") }
                 Button("Status") { controller.probe(label: "manual") }
                 Spacer()

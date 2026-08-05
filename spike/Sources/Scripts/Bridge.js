@@ -61,6 +61,14 @@
     }
   }
 
+  function ytMuted() {
+    try { return player().isMuted(); } catch (e) { return null; }
+  }
+
+  function ytVolume() {
+    try { return player().getVolume(); } catch (e) { return null; }
+  }
+
   // The player is created well after document-start, and m.youtube.com is an
   // SPA, so poll rather than assume.
   setInterval(wireUp, 1000);
@@ -110,9 +118,43 @@
         currentTime: v ? Math.round(v.currentTime) : null,
         duration: v ? Math.round(v.duration) : null,
         readyState: v ? v.readyState : null,
+        // Audio diagnostics. `muted` is the element flag; `volume` is 0..1;
+        // ytMuted is the player's own idea, which can disagree with the element.
+        muted: v ? v.muted : null,
+        volume: v ? v.volume : null,
+        ytMuted: ytMuted(),
+        ytVolume: ytVolume(),
+        videoCount: document.querySelectorAll('video').length,
         hidden: document.hidden,
         visibility: document.visibilityState
       });
+    },
+
+    // Force audio on without going through YouTube's own unmute affordance.
+    // If this produces sound and tapping the overlay does not, the problem is
+    // YouTube's UI. If neither produces sound, the problem is below the page.
+    unmute: function () {
+      var results = [];
+      var p = player();
+
+      if (p && typeof p.unMute === 'function') {
+        try { p.unMute(); results.push('player.unMute'); } catch (e) { results.push('unMute threw'); }
+      }
+      if (p && typeof p.setVolume === 'function') {
+        try { p.setVolume(100); results.push('setVolume(100)'); } catch (e) {}
+      }
+
+      var videos = document.querySelectorAll('video');
+      for (var i = 0; i < videos.length; i++) {
+        videos[i].muted = false;
+        videos[i].volume = 1;
+        var playback = videos[i].play();
+        if (playback && playback.catch) {
+          playback.catch(function (e) { report('play() rejected: ' + e); });
+        }
+      }
+      results.push('unmuted ' + videos.length + ' video element(s)');
+      return results.join(', ');
     }
   };
 
