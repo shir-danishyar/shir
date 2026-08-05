@@ -231,7 +231,10 @@ cannot do this step.
 
 ## 10. Open questions
 
-- Does `loadVideoById` avoid an SPA navigation? Phase 0 answers this.
+- ~~Does `loadVideoById` avoid an SPA navigation?~~ **Answered 2026-08-04: yes.**
+  The spike shows `href` unchanged while `videoId` changes, and no navigation
+  callback fires. The document stays live across a track change, so the audio
+  session is not torn down. See `spike/README.md`.
 - Does `m.youtube.com` need a desktop user-agent? Brave's heavier
   `trusted-replace-fetch-response` rules are scoped to `www.youtube.com` and `tv.youtube.com`
   only. If mobile coverage proves weak, forcing desktop UA is the lever.
