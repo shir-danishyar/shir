@@ -25,7 +25,7 @@ final class ShirUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
 
         tapTab("Search")
-        XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
 
         tapTab("More")
         XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))
@@ -81,15 +81,10 @@ final class ShirUITests: XCTestCase {
 
     // MARK: - Search
 
-    func testSearchTellsYouWhenTheAPIKeyIsMissing() {
-        tapTab("Search")
-        XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
-    }
-
     /// SwiftUI focuses a field asynchronously after the tap, so `typeText` that
     /// lands before focus arrives is silently dropped. Rather than sleeping,
     /// this gates on the clear button, which only renders once the text has
-    /// actually reached the binding — the same technique the API key test uses.
+    /// actually reached the binding, rather than waiting a fixed time.
     func testSearchFieldAcceptsTyping() {
         tapTab("Search")
         let field = app.textFields["searchField"]
@@ -99,11 +94,14 @@ final class ShirUITests: XCTestCase {
         field.typeText("benyamin")
 
         let clear = app.buttons["clearSearchButton"]
-        if !clear.waitForExistence(timeout: 3) {
+        // Retry only if the field is genuinely still empty. Gating the retry on
+        // the clear button alone types a second time whenever the button merely
+        // rendered slowly, which produces "benyaminbenyamin".
+        if !clear.waitForExistence(timeout: 3), (field.value as? String) == "Search" {
             field.tap()
             field.typeText("benyamin")
         }
-        XCTAssertTrue(clear.waitForExistence(timeout: 5), "typed text should reach the binding")
+        XCTAssertTrue(clear.waitForExistence(timeout: 8), "typed text should reach the binding")
         XCTAssertEqual(field.value as? String, "benyamin")
 
         clear.tap()
@@ -117,30 +115,7 @@ final class ShirUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["YouTube tracks"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Imported files"].exists)
         XCTAssertTrue(app.staticTexts["When YouTube breaks it"].exists)
-    }
-
-    func testSavingAPIKeyUnlocksSearch() {
-        openSettings()
-        enterAndSaveAPIKey()
-
-        XCTAssertTrue(app.staticTexts["Key saved"].waitForExistence(timeout: 10))
-
-        tapTab("Search")
-        XCTAssertFalse(
-            app.staticTexts["YouTube key needed"].exists,
-            "saving a key should remove the missing-key notice"
-        )
-    }
-
-    func testRemovingSavedKeyRestoresTheNotice() {
-        openSettings()
-        enterAndSaveAPIKey()
-        XCTAssertTrue(app.staticTexts["Key saved"].waitForExistence(timeout: 10))
-
-        app.buttons["Remove Key"].tap()
-
-        tapTab("Search")
-        XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["No account, no key"].exists)
     }
 
     func testMoreTabShowsLibraryCounts() {
@@ -166,33 +141,6 @@ final class ShirUITests: XCTestCase {
         let settings = app.buttons["settingsRow"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         settings.tap()
-    }
-
-    /// Types a key into the Settings field and saves it.
-    ///
-    /// SwiftUI focuses a field asynchronously after the tap, and `typeText`
-    /// into a not-yet-focused field is silently dropped — which made the two
-    /// key tests flaky. Rather than sleeping, this gates on the Save button
-    /// becoming enabled, which only happens once the text actually landed in
-    /// the binding, and retries the typing once if it didn't.
-    private func enterAndSaveAPIKey(_ key: String = "AIzaTestKeyNotReal") {
-        let field = app.secureTextFields.firstMatch
-        XCTAssertTrue(field.waitForExistence(timeout: 10), "the key field should be on screen")
-        field.tap()
-        _ = app.keyboards.element.waitForExistence(timeout: 5)
-        field.typeText(key)
-
-        let save = app.buttons["Save Key"]
-        XCTAssertTrue(save.waitForExistence(timeout: 5))
-
-        if !save.isEnabled {
-            field.tap()
-            field.typeText(key)
-        }
-
-        let enabled = expectation(for: NSPredicate(format: "isEnabled == true"), evaluatedWith: save)
-        wait(for: [enabled], timeout: 10)
-        save.tap()
     }
 
     /// Creates a playlist from the Playlists tab's + button.

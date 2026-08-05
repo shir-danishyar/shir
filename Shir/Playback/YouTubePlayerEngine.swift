@@ -51,7 +51,6 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     private var appInitiatedNavigation = false
 
     private static let messageHandlerName = "shir"
-    private static let scriptNames = ["AdStrip", "BackgroundPlay", "PlayerSurface", "Bridge"]
 
     // MARK: - PlaybackEngine
 
@@ -136,25 +135,22 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         // window.webkit.messageHandlers lookup finds nothing.
         controller.add(self, contentWorld: .page, name: Self.messageHandlerName)
 
-        for name in Self.scriptNames {
-            guard let url = Bundle.main.url(forResource: name, withExtension: "js"),
-                  let source = try? String(contentsOf: url, encoding: .utf8) else {
-                // A missing script is a build-configuration error — .js needs an
-                // explicit resources build phase in project.yml — and it
-                // degrades to "the ads came back" rather than a crash, so it is
-                // worth being loud about.
-                assertionFailure("Missing bundled script \(name).js")
-                onError?("Player script \(name).js is missing from the app bundle.")
-                continue
-            }
-            controller.addUserScript(
-                WKUserScript(
-                    source: source,
-                    injectionTime: .atDocumentStart,
-                    forMainFrameOnly: false,
-                    in: .page
+        for script in PlayerScripts.player {
+            do {
+                controller.addUserScript(
+                    WKUserScript(
+                        source: try script.source,
+                        injectionTime: .atDocumentStart,
+                        forMainFrameOnly: false,
+                        in: .page
+                    )
                 )
-            )
+            } catch {
+                // A missing script degrades to "the ads came back" rather than
+                // a crash, so it is worth being loud about.
+                assertionFailure("\(error)")
+                onError?(error.localizedDescription)
+            }
         }
 
         let configuration = WKWebViewConfiguration()

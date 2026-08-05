@@ -8,7 +8,15 @@ let package = Package(
         .library(name: "ShirKit", targets: ["ShirKit"])
     ],
     targets: [
-        .target(name: "ShirKit"),
+        // The injected player scripts live here rather than in the app target
+        // so they can be unit-tested with JavaScriptCore on macOS, without a
+        // simulator. They are the most fragile code in the project — YouTube
+        // changes its response shape every few months — so a fast test that
+        // names the breakage is worth more than any other test here.
+        .target(
+            name: "ShirKit",
+            resources: [.copy("Resources/Scripts")]
+        ),
         .testTarget(name: "ShirKitTests", dependencies: ["ShirKit"]),
     ]
 )
