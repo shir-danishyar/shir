@@ -189,6 +189,47 @@ Rules:
 5. **`params: 'EgIQAQ=='`** filters to videos, dropping Shorts, channels and playlist
    shelves — which removes most of the parsing edge cases.
 
+### Suggestions and history
+
+`SuggestionClient` fetches YouTube's autocomplete — the same endpoint its own
+search box uses, no key, no account:
+
+```
+https://suggestqueries-clients6.youtube.com/complete/search
+  ?client=firefox&ds=yt&oe=utf-8&hl=<lang>&gl=<region>&q=<query>
+```
+
+Every parameter is load-bearing. `client=firefox` selects the flat-array shape;
+the others wrap it in JSONP or per-item tuples. `ds=yt` scopes to YouTube rather
+than Google Web. **`oe=utf-8` is not optional** — without it non-Latin scripts
+come back as mojibake, which for this library means most of it. `gl` measurably
+changes results.
+
+- **Parse `root[1]`, and guard `root.count > 1`.** An empty result is a *two*
+  element array, so anything reaching for index 2 crashes on no-suggestions.
+- **This one runs natively, not in the web view**, unlike search. The endpoint's
+  CORS policy would permit an in-page fetch, so that is not the reason. The
+  reasons are: the web view must finish loading m.youtube.com before any script
+  runs, so the first keystroke of a session would block on a page load; that web
+  view is a single `@MainActor` instance already busy with the 119KB search; and
+  native code is testable on macOS in milliseconds.
+- **Failures are silent, never thrown.** The user is mid-word; an error banner
+  for a feature they did not ask for is worse than no suggestions.
+- **150ms debounce, separate task from search's 450ms.** They must not cancel
+  each other.
+- **Drop out-of-order responses.** These requests are small and fast enough that
+  interleaving is likely, not theoretical. Capture the query at request time and
+  discard any reply whose query is no longer current.
+- **Accepting a suggestion has a required order:** assign `query` first, *then*
+  clear suggestions. `query`'s `didSet` fires synchronously and schedules a new
+  fetch, so clearing first reopens the list under the user's finger.
+
+Search history is a **separate `search-history.json`**, never a field on
+`Library`. Swift's synthesized `Decodable` throws `keyNotFound` for a property
+missing from stored JSON, and `LibraryStore.init` handles a decode failure by
+starting from an empty `Library` — so adding a field there would delete the
+user's whole library on first launch of the new build.
+
 **What was lost:** the Data API's `videoEmbeddable=true` and `videoCategoryId=10` filters
 have no InnerTube equivalent, so a non-embeddable video can now reach the queue. The
 authoritative signal is at playback instead — IFrame error codes **101** and **150** mean

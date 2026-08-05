@@ -10,6 +10,8 @@ final class AppEnvironment {
     let library: LibraryStore
     let playback: PlaybackCoordinator
     let youtube: InnerTubeSearchClient
+    let suggestions: SuggestionClient
+    let searchHistory: SearchHistoryStore
 
     /// Passed by the UI test target so each run starts from a clean library
     /// instead of whatever the previous run left in Documents.
@@ -18,16 +20,24 @@ final class AppEnvironment {
     }
 
     init() {
+        // Under -uitesting both stores point at a fresh temp directory, so each
+        // run starts clean rather than inheriting the last one.
+        let scratch = FileManager.default.temporaryDirectory
+            .appendingPathComponent("uitest-\(UUID().uuidString)")
+
         let persistence: LibraryPersisting = Self.isUITesting
-            ? FileLibraryPersistence(
-                url: FileManager.default.temporaryDirectory
-                    .appendingPathComponent("uitest-\(UUID().uuidString)")
-                    .appendingPathComponent("library.json")
-              )
+            ? FileLibraryPersistence(url: scratch.appendingPathComponent("library.json"))
             : FileLibraryPersistence()
         library = LibraryStore(persistence: persistence)
+
+        let historyPersistence: SearchHistoryPersisting = Self.isUITesting
+            ? FileSearchHistoryPersistence(url: scratch.appendingPathComponent("search-history.json"))
+            : FileSearchHistoryPersistence()
+        searchHistory = SearchHistoryStore(persistence: historyPersistence)
+
         playback = PlaybackCoordinator()
         youtube = InnerTubeSearchClient()
+        suggestions = SuggestionClient()
     }
 
     /// Removes a local track's file as well as its library entry, so deleting
