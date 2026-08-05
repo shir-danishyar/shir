@@ -2,22 +2,29 @@ import Foundation
 
 /// Where the audio for a track actually comes from.
 ///
-/// The two cases are deliberately different products:
-/// `.youtube` plays through the official IFrame Player, which means YouTube
-/// controls the stream and any advertising in it. `.localFile` is a file the
-/// user brought with them, so the app owns playback end to end.
+/// `.youtube` plays inside a `WKWebView` driving m.youtube.com; `.localFile` is
+/// a file the user imported, played by AVPlayer. Two engines, one queue — see
+/// `PlaybackCoordinator` in the app target.
 public enum MediaSource: Codable, Hashable, Sendable {
     case youtube(videoID: String)
     case localFile(fileName: String)
 
-    /// Whether this source is allowed to keep playing with the screen off.
+    /// Whether this source keeps playing with the screen off.
     ///
-    /// Only owned files qualify. Backgrounding the IFrame player to get
-    /// audio-only YouTube playback violates the YouTube API Services Terms,
-    /// so the coordinator pauses YouTube tracks on resign-active instead.
+    /// Both do, as of the 2026-08-04 move to a personal-device build. YouTube
+    /// used to return `false` here, because the app was aiming at the App Store
+    /// and backgrounding the IFrame player is the specific behaviour that got
+    /// Musi removed. That constraint went away with the distribution target;
+    /// see CLAUDE.md §2 for the reasoning and the revert path.
+    ///
+    /// Keeping the property rather than deleting it: local files reach this
+    /// through AVFoundation, which needs nothing special, while YouTube needs
+    /// an active `.playback` session and the visibility overrides in
+    /// `BackgroundPlay.js`. The distinction still exists — it just no longer
+    /// decides whether audio is allowed to continue.
     public var supportsBackgroundPlayback: Bool {
         switch self {
-        case .youtube: return false
+        case .youtube: return true
         case .localFile: return true
         }
     }

@@ -1,35 +1,57 @@
-import Foundation
+import AVFoundation
 import ShirKit
 import WebKit
 
-/// Plays YouTube tracks through the official IFrame Player API inside a WKWebView.
+/// Plays YouTube by driving `m.youtube.com` as a first-party document.
 ///
-/// This is the only sanctioned way for a third-party app to play YouTube
-/// content. Three rules follow from the YouTube API Services Terms and are
-/// enforced here rather than left to the UI:
+/// The previous version embedded `youtube.com/embed` and talked to it over
+/// postMessage. That had to go: a cross-origin iframe is a black box, so no
+/// injected script can reach inside it — which rules out both ad stripping and
+/// keeping audio alive in the background. Loading the mobile site directly is
+/// what makes injection possible at all.
 ///
-/// - The player is never hidden or given zero size. `NowPlayingView` shows it.
-/// - Ads, overlays and the stream itself are untouched. The app talks to the
-///   player only through `loadVideoById` / `playVideo` / `pauseVideo` / `seekTo`.
-/// - Audio does not continue in the background. `PlaybackCoordinator` pauses
-///   YouTube tracks when the app leaves the foreground.
+/// Four scripts do the work, all at `.atDocumentStart` in `WKContentWorld.page`:
+///
+/// - `AdStrip.js` deletes the ad inventory before the player parses it
+/// - `BackgroundPlay.js` keeps playback alive with the screen off
+/// - `PlayerSurface.js` hides YouTube's chrome so this is a player, not a browser
+/// - `Bridge.js` exposes `window.__shir` and reports state and progress back
+///
+/// The content world matters more than anything else here. These scripts patch
+/// page globals — `fetch`, `XMLHttpRequest`, `Document.prototype`. In
+/// `.defaultClient` they would run, report success, and do nothing, because the
+/// page's own globals would be untouched. That failure mode is completely
+/// silent, so it is worth being deliberate about.
 @MainActor
 final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     var onStateChange: ((EngineState) -> Void)?
     var onProgress: ((TimeInterval, TimeInterval) -> Void)?
     var onError: ((String) -> Void)?
 
-    /// Exposed so `YouTubePlayerView` can put the very same web view on screen.
+    /// Exposed so `YouTubePlayerView` can put this very web view on screen.
     /// One instance for the app's lifetime — recreating it would restart the
-    /// player every time the Now Playing sheet is dismissed.
+    /// player every time Now Playing is dismissed.
     private(set) lazy var webView: WKWebView = makeWebView()
 
-    private var isPlayerReady = false
-    /// Commands issued before the IFrame API finishes loading, replayed on ready.
+    /// True once `Bridge.js` has found `#movie_player` and wired its listeners.
+    private var isBridgeReady = false
+
+    /// Commands issued before the bridge is ready, replayed once it is.
     private var pendingCommands: [String] = []
-    private var pendingTrackID: String?
+
+    /// The document has to exist before anything can play. The first track is
+    /// loaded by navigating; every track after that is a `loadVideoById` into
+    /// the live page, which the Phase 0 spike proved does *not* navigate — so
+    /// the audio session survives a track change.
+    private var hasLoadedDocument = false
+    private var wantsAutoplayOnReady = true
+
+    /// Set immediately before any `webView.load`, consumed by the navigation
+    /// policy. Anything arriving without it came from the page itself.
+    private var appInitiatedNavigation = false
 
     private static let messageHandlerName = "shir"
+    private static let scriptNames = ["AdStrip", "BackgroundPlay", "PlayerSurface", "Bridge"]
 
     // MARK: - PlaybackEngine
 
@@ -38,59 +60,134 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
             onError?("That track is not a YouTube video.")
             return
         }
-        pendingTrackID = videoID
         onStateChange?(.buffering)
-        let function = autoplay ? "loadVideoById" : "cueVideoById"
-        run("player.\(function)({videoId: '\(escape(videoID))'});")
+        activateAudioSession()
+
+        guard hasLoadedDocument else {
+            hasLoadedDocument = true
+            wantsAutoplayOnReady = autoplay
+            appInitiatedNavigation = true
+            webView.load(URLRequest(url: Self.watchURL(for: videoID)))
+            return
+        }
+
+        run(autoplay ? "__shir.load('\(escape(videoID))')" : "__shir.cue('\(escape(videoID))')")
+        scheduleUnmute()
     }
 
-    func play() { run("player.playVideo();") }
+    func play() {
+        activateAudioSession()
+        run("__shir.play()")
+        scheduleUnmute()
+    }
 
-    func pause() { run("player.pauseVideo();") }
+    func pause() {
+        run("__shir.pause()")
+    }
 
     func seek(to time: TimeInterval) {
-        run("player.seekTo(\(max(0, time)), true);")
+        run("__shir.seek(\(max(0, time)))")
     }
 
     func stop() {
-        run("player.stopVideo();")
+        run("__shir.stop()")
         onStateChange?(.idle)
+    }
+
+    private static func watchURL(for videoID: String) -> URL {
+        URL(string: "https://m.youtube.com/watch?v=\(videoID)")!
+    }
+
+    // MARK: - Audio session
+
+    /// Activated lazily rather than at launch, so the app doesn't interrupt
+    /// whatever else is playing until a song actually starts.
+    ///
+    /// This is what lets WebKit media keep running with the screen off, in
+    /// combination with `UIBackgroundModes: audio` and the visibility overrides
+    /// in `BackgroundPlay.js`. All three are required; any one missing and
+    /// playback stops at lock.
+    private func activateAudioSession() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+        } catch {
+            onError?("Could not start audio: \(error.localizedDescription)")
+        }
+    }
+
+    /// YouTube starts every video muted — WebKit only permits unattended
+    /// autoplay when the media is silent — and then waits for a tap on its own
+    /// overlay. A music app must never sit there muted, and a freshly loaded
+    /// video can come back muted, so this is re-asserted after every load.
+    private func scheduleUnmute() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(900))
+            self?.run("__shir.unmute()")
+        }
     }
 
     // MARK: - Web view
 
     private func makeWebView() -> WKWebView {
         let controller = WKUserContentController()
-        controller.add(self, name: Self.messageHandlerName)
+        // Registered in the same world the scripts run in, or their
+        // window.webkit.messageHandlers lookup finds nothing.
+        controller.add(self, contentWorld: .page, name: Self.messageHandlerName)
+
+        for name in Self.scriptNames {
+            guard let url = Bundle.main.url(forResource: name, withExtension: "js"),
+                  let source = try? String(contentsOf: url, encoding: .utf8) else {
+                // A missing script is a build-configuration error — .js needs an
+                // explicit resources build phase in project.yml — and it
+                // degrades to "the ads came back" rather than a crash, so it is
+                // worth being loud about.
+                assertionFailure("Missing bundled script \(name).js")
+                onError?("Player script \(name).js is missing from the app bundle.")
+                continue
+            }
+            controller.addUserScript(
+                WKUserScript(
+                    source: source,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: false,
+                    in: .page
+                )
+            )
+        }
 
         let configuration = WKWebViewConfiguration()
         configuration.userContentController = controller
-        // Keep the video in the page instead of handing it to the fullscreen
-        // AVPlayerViewController, which would hide our own controls.
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
         webView.backgroundColor = .black
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.bounces = false
+        webView.navigationDelegate = self
 
-        // The IFrame API validates the embedding origin, so the HTML has to be
-        // served as though it came from youtube.com.
-        webView.loadHTMLString(Self.playerHTML, baseURL: URL(string: "https://www.youtube.com"))
+        // A player surface, not a browser. Beyond being the right product
+        // shape, this removes a hard crash: tapping YouTube's search box threw
+        // an uncaught UIKit exception from UIGestureGraph during touch
+        // delivery, because WKWebView's gesture recognizers and YouTube's
+        // formed a conflicting edge.
+        webView.isUserInteractionEnabled = false
+        webView.scrollView.isScrollEnabled = false
+        webView.allowsBackForwardNavigationGestures = false
+
         return webView
     }
 
     private func run(_ javaScript: String) {
-        guard isPlayerReady else {
+        guard isBridgeReady else {
             pendingCommands.append(javaScript)
             return
         }
         webView.evaluateJavaScript(javaScript) { [weak self] _, error in
-            // Commands fired while the player swaps videos can fail harmlessly;
-            // only surface a failure that leaves playback stuck.
-            guard let error, (error as NSError).code != WKError.javaScriptExceptionOccurred.rawValue else { return }
+            guard let error,
+                  (error as NSError).code != WKError.javaScriptExceptionOccurred.rawValue
+            else { return }
             Task { @MainActor in self?.onError?(error.localizedDescription) }
         }
     }
@@ -103,147 +200,122 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
 
     private func escape(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "'", with: "\\'")
+             .replacingOccurrences(of: "'", with: "\\'")
     }
-
-    // MARK: - Player page
-
-    /// Minimal host page for the IFrame API. `controls: 0` hides YouTube's own
-    /// chrome because the app draws its transport controls, but the video
-    /// surface itself stays visible and full size.
-    private static let playerHTML = """
-    <!DOCTYPE html>
-    <html>
-      <head>
-        <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
-        <style>
-          html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
-          #player { position: absolute; inset: 0; width: 100%; height: 100%; }
-        </style>
-      </head>
-      <body>
-        <div id="player"></div>
-        <script>
-          var player;
-          var progressTimer;
-
-          function post(payload) {
-            window.webkit.messageHandlers.shir.postMessage(payload);
-          }
-
-          function startProgressUpdates() {
-            stopProgressUpdates();
-            progressTimer = setInterval(function () {
-              if (!player || !player.getCurrentTime) { return; }
-              post({
-                event: 'progress',
-                position: player.getCurrentTime() || 0,
-                duration: player.getDuration() || 0
-              });
-            }, 500);
-          }
-
-          function stopProgressUpdates() {
-            if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
-          }
-
-          function onYouTubeIframeAPIReady() {
-            player = new YT.Player('player', {
-              height: '100%',
-              width: '100%',
-              playerVars: {
-                playsinline: 1,
-                controls: 0,
-                rel: 0,
-                modestbranding: 1,
-                fs: 0,
-                iv_load_policy: 3,
-                origin: 'https://www.youtube.com'
-              },
-              events: {
-                onReady: function () { post({ event: 'ready' }); },
-                onStateChange: function (e) {
-                  if (e.data === YT.PlayerState.PLAYING) { startProgressUpdates(); }
-                  else if (e.data !== YT.PlayerState.BUFFERING) { stopProgressUpdates(); }
-                  post({ event: 'state', value: e.data });
-                },
-                onError: function (e) { post({ event: 'error', value: e.data }); }
-              }
-            });
-          }
-
-          var tag = document.createElement('script');
-          tag.src = 'https://www.youtube.com/iframe_api';
-          document.body.appendChild(tag);
-        </script>
-      </body>
-    </html>
-    """
 }
 
-// MARK: - JS bridge
+// MARK: - Script messages
 
 extension YouTubePlayerEngine: WKScriptMessageHandler {
+
     nonisolated func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
         // WebKit always delivers script messages on the main thread, so this
-        // asserts the isolation it already has rather than hopping — hopping
-        // would reorder player events against each other.
+        // asserts isolation it already has rather than hopping — hopping would
+        // reorder player events against each other.
         MainActor.assumeIsolated {
-            guard let body = message.body as? [String: Any],
-                  let event = body["event"] as? String else { return }
-            handle(event: event, body: body)
+            guard let payload = message.body as? [String: Any],
+                  let kind = payload["kind"] as? String else { return }
+            handle(kind: kind, payload: payload)
         }
     }
 
-    private func handle(event: String, body: [String: Any]) {
-        switch event {
+    private func handle(kind: String, payload: [String: Any]) {
+        switch kind {
         case "ready":
-            isPlayerReady = true
+            guard !isBridgeReady else { return }
+            isBridgeReady = true
+            // The document was navigated for the first track; the page
+            // autoplays it, so only an explicit pause needs sending.
+            if !wantsAutoplayOnReady { run("__shir.pause()") }
+            scheduleUnmute()
             flushPendingCommands()
 
         case "state":
-            guard let raw = body["value"] as? Int else { return }
-            onStateChange?(Self.state(fromYouTubeCode: raw))
+            guard let name = payload["state"] as? String else { return }
+            onStateChange?(Self.engineState(named: name))
 
         case "progress":
-            let position = body["position"] as? Double ?? 0
-            let duration = body["duration"] as? Double ?? 0
+            let position = payload["position"] as? Double ?? 0
+            let duration = payload["duration"] as? Double ?? 0
             onProgress?(position, duration)
 
         case "error":
-            let code = body["value"] as? Int ?? -1
+            let code = payload["code"] as? Int ?? -1
             onStateChange?(.idle)
             onError?(Self.message(forErrorCode: code))
+
+        case "log":
+            #if DEBUG
+            if let text = payload["text"] as? String { print("SHIR js: \(text)") }
+            #endif
 
         default:
             break
         }
     }
 
-    /// YouTube's `PlayerState` constants.
-    private static func state(fromYouTubeCode code: Int) -> EngineState {
-        switch code {
-        case 0: return .ended
-        case 1: return .playing
-        case 2: return .paused
-        case 3: return .buffering
-        case 5: return .paused   // cued
-        default: return .idle    // -1, unstarted
+    private static func engineState(named name: String) -> EngineState {
+        switch name {
+        case "playing": return .playing
+        case "paused": return .paused
+        case "buffering": return .buffering
+        case "ended": return .ended
+        default: return .idle
         }
     }
 
-    /// The two codes that matter most are 101 and 150: the uploader has
-    /// disabled embedding, so the video simply cannot be played here.
     private static func message(forErrorCode code: Int) -> String {
         switch code {
-        case 2: return "YouTube rejected that video ID."
-        case 5: return "This video can't be played in an embedded player."
-        case 100: return "That video is private or has been removed."
+        case 2: return "That video ID isn't valid."
+        case 5: return "This video can't be played here."
+        case 100: return "That video was removed or made private."
         case 101, 150: return "The uploader doesn't allow this video to play outside YouTube."
-        default: return "YouTube couldn't play that video (error \(code))."
+        default: return "YouTube couldn't play that track."
+        }
+    }
+}
+
+// MARK: - Navigation
+
+extension YouTubePlayerEngine: WKNavigationDelegate {
+
+    /// Only navigations the app started are allowed through.
+    ///
+    /// Disabling user interaction stops taps, but YouTube can still navigate
+    /// *itself* — an interstitial, a sign-in bounce, an app-store redirect. Any
+    /// of those tears down the document and the audio session with it, which is
+    /// the one thing this design cannot survive. Track changes are unaffected,
+    /// because `loadVideoById` swaps in place without navigating.
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            guard navigationAction.targetFrame?.isMainFrame == true else {
+                decisionHandler(.allow)   // subframes are the player's own business
+                return
+            }
+            if appInitiatedNavigation {
+                appInitiatedNavigation = false
+                decisionHandler(.allow)
+            } else {
+                decisionHandler(.cancel)
+            }
+        }
+    }
+
+    nonisolated func webView(
+        _ webView: WKWebView,
+        didFailProvisionalNavigation navigation: WKNavigation!,
+        withError error: Error
+    ) {
+        Task { @MainActor in
+            self.onStateChange?(.idle)
+            self.onError?("Couldn't reach YouTube: \(error.localizedDescription)")
         }
     }
 }

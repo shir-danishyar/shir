@@ -72,7 +72,9 @@ final class YouTubeSearchClientTests: XCTestCase {
         XCTAssertEqual(track.id, "yt:abc123")
         XCTAssertEqual(track.source, .youtube(videoID: "abc123"))
         XCTAssertEqual(track.duration, 222)
-        XCTAssertFalse(track.source.supportsBackgroundPlayback)
+        // Was false while the app targeted the App Store. Both sources now play
+        // in the background — see MediaSource and CLAUDE.md §2.
+        XCTAssertTrue(track.source.supportsBackgroundPlayback)
     }
 
     func testMissingAPIKeyIsReportedBeforeAnyNetworkCall() async {

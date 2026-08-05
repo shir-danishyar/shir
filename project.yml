@@ -15,7 +15,16 @@ targets:
     type: application
     platform: iOS
     sources:
+      # .js has no default build phase in Xcode, so the injected player scripts
+      # are split out and forced into Resources. Without this,
+      # Bundle.main.url(forResource:withExtension:"js") returns nil at runtime
+      # and every script silently goes missing — which presents as "the ads are
+      # back", not as a build error.
       - path: Shir
+        excludes:
+          - "Resources/Scripts/**"
+      - path: Shir/Resources/Scripts
+        buildPhase: resources
     dependencies:
       - package: ShirKit
         product: ShirKit
@@ -27,8 +36,10 @@ targets:
         CFBundleVersion: "1"
         UILaunchScreen:
           UIColorName: LaunchBackground
-        # Background audio is for imported files only. YouTube playback is
-        # paused when the app backgrounds — see PlaybackCoordinator.
+        # Required by both engines. AVPlayer needs it for imported files, and
+        # WebKit media needs it plus an active .playback session plus the
+        # visibility overrides in BackgroundPlay.js — all three, or playback
+        # stops the moment the screen locks.
         UIBackgroundModes:
           - audio
         UISupportedInterfaceOrientations:

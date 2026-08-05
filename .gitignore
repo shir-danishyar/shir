@@ -17,3 +17,6 @@ screenshots/
 # Phase 0 spike — generated project and build output (see spike/README.md)
 spike/BackgroundPlaySpike.xcodeproj/
 spike/dd/
+
+# -derivedDataPath used by the local build/screenshot loop
+dd/
