@@ -17,6 +17,8 @@ struct RootTabView: View {
         @Bindable var playback = playback
 
         ZStack(alignment: .bottom) {
+            playerKeepAlive
+
             TabView(selection: $selection) {
                 FavoritesView()
                     .tabItem { Label("My Favorites", systemImage: "heart.fill") }
@@ -56,6 +58,39 @@ struct RootTabView: View {
         }
         .tint(Theme.accent)
         .onAppear(perform: applyBarAppearance)
+    }
+
+    /// Keeps the player's web view in the window while Now Playing is closed.
+    ///
+    /// `NowPlayingView` is a `fullScreenCover`, so mounting the web view only
+    /// there left it with no window for the whole time the user was browsing —
+    /// which is most of the time, and always the case when the phone is locked
+    /// from anywhere but that one screen.
+    ///
+    /// A web view with no window is not a *visible page* to WebKit, and WebKit
+    /// publishes web media to MediaRemote itself, only for a visible page. A
+    /// page it rules ineligible has its Now Playing card cleared — without its
+    /// audio being paused. That is exactly the reported symptom: music keeps
+    /// playing, the lock screen is empty. No amount of `MPNowPlayingInfoCenter`
+    /// could have fixed it, because the app was never the one publishing.
+    ///
+    /// The two mounts are mutually exclusive by construction — a `UIView` has
+    /// one superview, so overlapping them would have the cover silently steal
+    /// the web view and leave this one blank.
+    @ViewBuilder
+    private var playerKeepAlive: some View {
+        if playback.isPlayingYouTube, !isShowingNowPlaying {
+            YouTubePlayerView(webView: playback.youtubeEngine.webView)
+                // Deliberately one opaque point rather than a hidden or
+                // zero-alpha view: WebKit reads `isHidden` and alpha when it
+                // decides page visibility, so hiding it properly would put us
+                // back where we started. One black point over a near-black tab
+                // bar is imperceptible.
+                .frame(width: 1, height: 1)
+                .clipped()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
     }
 
     /// SwiftUI's `TabView` and `NavigationStack` still defer to UIKit's

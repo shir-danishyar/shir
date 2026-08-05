@@ -44,7 +44,7 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path RiffKit     # 74 unit tests, macOS, ~0.1s
+swift test --package-path RiffKit     # 83 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
 # 14 UI tests, ~2.5 min. Use an explicit device id — several simulators share names.
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `RiffKit` with a unit test.** RiffKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 74 tests in about a tenth of a second. The app target holds only
+simulator — 83 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -121,8 +121,9 @@ in the project (§8).
 | `Resources/Scripts/PlayerSurface.js` | Hides YouTube's chrome |
 | `Resources/Scripts/Bridge.js` | Player commands in, state and progress out |
 | `Resources/Scripts/Search.js` | Keyless InnerTube search, run inside the page |
+| `Resources/Scripts/MediaSession.js` | Owns `navigator.mediaSession`, so the lock screen is Riff's (§5) |
 | **App — playback** | |
-| `Playback/PlaybackEngine.swift` | The protocol both engines satisfy: 3 closures, 5 methods |
+| `Playback/PlaybackEngine.swift` | The protocol both engines satisfy: 3 closures, 5 methods, plus `RemoteCommand` |
 | `Playback/PlaybackCoordinator.swift` | Owns the queue, routes to an engine, drives Now Playing info |
 | `Playback/YouTubePlayerEngine.swift` | The web view, the script injection, the JS bridge |
 | `Playback/LocalAudioEngine.swift` | `AVPlayer`, plus `MediaLibraryLocation` |
@@ -231,6 +232,66 @@ changed in 24 months of upstream filter history.
 10. **Background audio needs all three:** `UIBackgroundModes: audio`, an active
     `.playback` `AVAudioSession`, and the visibility overrides. Any one missing
     and playback stops at lock.
+
+### The lock screen belongs to WebKit, not to this app
+
+**`MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` do nothing for a YouTube
+track.** Not "less", *nothing*. Both are still wired for local files, where they
+work normally, so the code being present is not evidence it runs.
+
+Two mechanisms, both read out of WebKit's source rather than guessed:
+
+1. **WebKit publishes web media itself.** `MediaSessionManagerCocoa::setNowPlayingInfo`
+   calls MediaRemote directly from the WebContent process, with
+   `MRMediaRemoteMergePolicyReplace`, and re-arms on a ~5s timer. It even
+   attributes itself to this bundle via `MRMediaRemoteSetParentApplication`. So
+   it presents *as Riff* while overwriting anything Riff sets.
+2. **The page decides which buttons exist.** `RemoteCommandListenerCocoa` builds
+   the set as `supportedCommands() ∪ {play, pause}`, and the only route into
+   `supportedCommands()` is the page calling
+   `navigator.mediaSession.setActionHandler`. **NextTrack and PreviousTrack are
+   in no default set.** A next button exists if and only if the page registers
+   `nexttrack`. That sentence is the whole feature.
+
+So `MediaSession.js` takes `navigator.mediaSession` away from YouTube at
+document-start and forwards presses to Swift as `{kind: "remote", action: …}`,
+which `PlaybackCoordinator` turns into *Riff's* queue advancing rather than
+YouTube's autoplay. Details that look arbitrary and are not:
+
+- **`seekforward`/`seekbackward` are nulled deliberately.** Skip-15s occupies the
+  same two lock-screen slots as previous/next, so leaving them registered means
+  no track buttons appear at all.
+- **The lock swallows rather than throws.** YouTube's bundle is strict mode; a
+  throw during player init risks killing playback. A blank card beats no music.
+- **Metadata goes through `JSONEncoder`, not `escape(_:)`.** The latter handles
+  quotes and backslashes only — fine for an 11-character video id, nowhere near
+  enough for a real title, where a newline or U+2028 is a silent syntax error.
+- **The web view must be in a window.** WebKit only treats a page as visible if
+  its `WKWebView` has one, and `NowPlayingView` is a `fullScreenCover` — so the
+  player used to have no window at all whenever that screen was closed, which is
+  most of the time. `RootTabView.playerKeepAlive` holds a one-point mount for
+  exactly this. An ineligible session has its card cleared *without its audio
+  being paused*, which is why the symptom was "music plays, lock screen empty".
+
+**Verified on iOS 26.3, not assumed:** WebKit's `RequirePageVisibilityForVideoToBeNowPlaying`
+restriction — which would make a `<video>` ineligible whenever its page is
+hidden, and which nothing in the page can clear — is **compiled out** of the
+shipping build. `YouTubePlayerEngine.allowNowPlayingWhileHidden` probes for it by
+writing `true` and reading it back (`responds(to:)` cannot tell a live setting
+from a stub, because the accessors exist either way) and disables it if a future
+iOS turns it on.
+
+To confirm behaviour on a device, stream both subsystems while locking the phone:
+
+```bash
+log stream --device-name "<iPhone>" --style compact \
+  --predicate 'subsystem == "com.shirhussain.riff" OR (subsystem == "com.apple.WebKit" AND category == "Media")'
+```
+
+`MediaSession::setActionHandler … adding nexttrack` means the handlers landed.
+`clearing now playing info` at lock means the session went ineligible.
+`title = …` every ~5s means WebKit is publishing and the problem is elsewhere.
+`INFO_LOG` lines are unreachable on a device build — do not grep for them.
 
 ### Why adblock-rust is not a dependency
 
@@ -349,7 +410,7 @@ Each rule has a test:
 
 ## 8. Testing
 
-74 unit tests (macOS, ~0.1s) and 14 UI tests (simulator, ~2.5 min).
+83 unit tests (macOS, ~0.1s) and 14 UI tests (simulator, ~2.5 min).
 
 **Anything with real logic belongs in RiffKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
@@ -387,6 +448,11 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | Every search crashes the app | A key provider using `MainActor.assumeIsolated`, called from a background context | Read the keychain directly, or keep the call off the main actor |
 | Video plays but there is no sound | WebKit only allows unattended autoplay when muted; YouTube complies and waits for a tap | Unmute explicitly on load and after each track change |
 | Ads replaced by a 4–16s spinner | SABR `backoffTimeMs` still covers the removed ad slot | Port `brave-yt-sabr-fix.js` |
+| Music plays with the screen locked but there is no Now Playing card | The web view has no window, so WebKit does not treat the page as visible and clears the card — without pausing the audio | Keep it mounted; `RootTabView.playerKeepAlive` |
+| Lock screen has play/pause but no next or previous | WebKit's default command set has neither, and `MPRemoteCommandCenter` cannot add them for web media | The *page* must register `nexttrack` — `MediaSession.js` |
+| Registering `nexttrack` still shows no track buttons | `seekforward`/`seekbackward` occupy the same two slots | Null them explicitly |
+| The lock screen shows an advertiser's name | YouTube sets its own `mediaSession.metadata` during a pre-roll | Lock `metadata` with `configurable: false` at document-start |
+| An SPI check passes but the setting does nothing | WebKit declares the accessors unconditionally and compiles the bodies out, so `responds(to:)` answers YES for a stub | Write a value and read it back |
 | First song of a session plays an ad | `ytInitialData` is server-rendered and never passes through `fetch`/`XHR` | Intercept with `Object.defineProperty` |
 | Playback stops roughly half an hour in | `window._lact` went stale | Refresh it every 5 min |
 | `.js` files missing at runtime | `.js` has no default build phase in Xcode | They live in RiffKit as SwiftPM resources — do not move them to the app target |
@@ -480,15 +546,20 @@ Record provenance in a comment whenever you adapt code from any of these.
 
 ## 12. Known gaps and stale artefacts
 
+**Built but not confirmed on a device:**
+
+- **Lock-screen controls for YouTube tracks.** Built (§5), reverted once, and
+  restored. What is *verified*, from the simulator's WebKit log rather than by
+  reasoning: the handlers reach WebKit (`MediaSession::setActionHandler … adding
+  nexttrack`), `seekforward`/`seekbackward` stay unregistered, and the
+  page-visibility restriction is compiled out of iOS 26.3. What is **not**
+  verified is the only thing that matters to a user — that the card appears on a
+  locked phone. **The simulator cannot answer that**, which is the most likely
+  reason `53cdda6` was reverted 31 minutes after it was committed. Use the `log
+  stream` predicate in §5 on the physical device, not a simulator screenshot.
+
 **Not built:**
 
-- **Lock-screen Now Playing controls for YouTube tracks.** Attempted in
-  `53cdda6` and reverted in `69a3e3f`; the revert records no reason, so treat
-  the approach as unproven rather than rejected. That commit message contains a
-  detailed mechanism analysis — WebKit writing MediaRemote from the WebContent
-  process, and the lock screen's button set being derived from what the *page*
-  registers — which is worth reading before trying again. Local files are
-  unaffected: `LocalAudioEngine` gets lock-screen controls normally.
 - **Non-embeddable videos are not skipped.** The Data API's `videoEmbeddable`
   filter has no InnerTube equivalent, so such a video can reach the queue. The
   authoritative signal is IFrame error **101/150** at playback, which the engine

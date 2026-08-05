@@ -15,8 +15,9 @@ struct RiffApp: App {
                 .tint(Theme.accent)
         }
         .onChange(of: scenePhase) { _, phase in
-            // Local audio keeps going in the background; YouTube is paused here
-            // deliberately. See PlaybackCoordinator for why.
+            // Both sources keep playing in the background now. The hook is kept
+            // because it is where the YouTube pause goes back if this app is
+            // ever pointed at the App Store again — see PlaybackCoordinator.
             if phase == .background {
                 environment.playback.applicationDidEnterBackground()
             }

@@ -1,6 +1,22 @@
 import AVFoundation
+import OSLog
 import RiffKit
 import WebKit
+
+/// The two `WKPreferences` accessors that govern whether a `<video>` must be in
+/// a visible page to hold the Now Playing card.
+///
+/// Declared as a protocol and reached with `unsafeBitCast` rather than
+/// `perform(_:with:)` because the setter takes a `BOOL`: `perform` passes an
+/// object pointer, so it can only ever spell `true`, and the value this needs to
+/// write is `false`.
+@objc private protocol NowPlayingVisibilitySPI {
+    @objc(_setRequiresPageVisibilityForVideoToBeNowPlayingForTesting:)
+    func setRequiresPageVisibilityForVideoToBeNowPlaying(_ enabled: Bool)
+
+    @objc(_requiresPageVisibilityForVideoToBeNowPlayingForTesting)
+    var requiresPageVisibilityForVideoToBeNowPlaying: Bool { get }
+}
 
 /// Plays YouTube by driving `m.youtube.com` as a first-party document.
 ///
@@ -24,9 +40,24 @@ import WebKit
 /// silent, so it is worth being deliberate about.
 @MainActor
 final class YouTubePlayerEngine: NSObject, PlaybackEngine {
+
+    /// Why these are `os_log` rather than `print`: the failures they describe are
+    /// only reproducible on a locked physical device, where there is no Xcode
+    /// console to read. Streaming
+    /// `subsystem == "com.shirhussain.riff"` alongside
+    /// `subsystem == "com.apple.WebKit" AND category == "Media"` is what turns
+    /// "the lock screen is blank" into a diagnosis.
+    static let log = Logger(subsystem: "com.shirhussain.riff", category: "nowplaying")
     var onStateChange: ((EngineState) -> Void)?
     var onProgress: ((TimeInterval, TimeInterval) -> Void)?
     var onError: ((String) -> Void)?
+
+    /// Lock-screen and Control Center presses, forwarded from `MediaSession.js`.
+    ///
+    /// Not part of `PlaybackEngine`: `LocalAudioEngine`'s remote commands arrive
+    /// natively through `MPRemoteCommandCenter` and work correctly, so giving it
+    /// a no-op property would imply a symmetry that does not exist.
+    var onRemoteCommand: ((RemoteCommand) -> Void)?
 
     /// Exposed so `YouTubePlayerView` can put this very web view on screen.
     /// One instance for the app's lifetime — recreating it would restart the
@@ -46,6 +77,10 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     private var hasLoadedDocument = false
     private var wantsAutoplayOnReady = true
 
+    /// The track most recently handed to the player, so its metadata can be
+    /// pushed again once a navigation has rebuilt the document.
+    private var loadedTrack: Track?
+
     /// Set immediately before any `webView.load`, consumed by the navigation
     /// policy. Anything arriving without it came from the page itself.
     private var appInitiatedNavigation = false
@@ -61,6 +96,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         }
         onStateChange?(.buffering)
         activateAudioSession()
+        loadedTrack = track
 
         guard hasLoadedDocument else {
             hasLoadedDocument = true
@@ -71,6 +107,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         }
 
         run(autoplay ? "__riff.load('\(escape(videoID))')" : "__riff.cue('\(escape(videoID))')")
+        pushNowPlayingMetadata()
         scheduleUnmute()
     }
 
@@ -157,6 +194,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         configuration.userContentController = controller
         configuration.allowsInlineMediaPlayback = true
         configuration.mediaTypesRequiringUserActionForPlayback = []
+        Self.allowNowPlayingWhileHidden(configuration.preferences)
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.isOpaque = false
@@ -194,9 +232,118 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         for command in commands { run(command) }
     }
 
+    // MARK: - Lock screen
+
+    /// Pushes Riff's own track metadata into the page's media session.
+    ///
+    /// This is what the lock screen actually renders for a YouTube track.
+    /// `MediaSession.js` locks `navigator.mediaSession.metadata`, so without this
+    /// the card is blank — and without the lock, YouTube would put the
+    /// advertiser's name and artwork there during a pre-roll.
+    ///
+    /// `run(_:)` queues until the bridge is ready, so calling this during a
+    /// navigation is safe; it replays on "ready".
+    func pushNowPlayingMetadata() {
+        guard let track = loadedTrack else { return }
+        let arguments = [track.title, track.artist, "", track.artworkURL?.absoluteString ?? ""]
+            .map(Self.jsString)
+            .joined(separator: ", ")
+        run("window.__riffMedia && __riffMedia.setMetadata(\(arguments))")
+    }
+
+    /// Encodes a string as a JavaScript literal.
+    ///
+    /// Deliberately not `escape(_:)`, which handles quotes and backslashes only.
+    /// That is enough for an 11-character video id and nowhere near enough for a
+    /// track title arriving from YouTube search: a newline or a U+2028 in a title
+    /// would produce a syntax error, and the metadata push would fail silently,
+    /// leaving a blank lock screen with no other symptom.
+    private static func jsString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let literal = String(data: data, encoding: .utf8)
+        else { return "\"\"" }
+        return literal
+    }
+
     private func escape(_ value: String) -> String {
         value.replacingOccurrences(of: "\\", with: "\\\\")
              .replacingOccurrences(of: "'", with: "\\'")
+    }
+
+    // MARK: - Now Playing eligibility
+
+    /// Lets a `<video>` keep its Now Playing card while its page is not visible.
+    ///
+    /// WebKit carries a behaviour restriction —
+    /// `RequirePageVisibilityForVideoToBeNowPlaying` — that makes a `<video>`
+    /// ineligible to be the Now Playing session whenever WebKit considers its
+    /// page hidden, which a locked screen always is. An ineligible session has
+    /// its card *cleared* without its audio being paused, which is precisely the
+    /// symptom this app had: the music kept playing and the lock screen was
+    /// empty.
+    ///
+    /// Nothing in the page can escape it. There is no `removeBehaviorRestriction`
+    /// call site for the flag anywhere in WebCore; user gestures cannot clear it
+    /// (`removeBehaviorRestrictionsAfterFirstUserGesture` masks against an
+    /// allowlist that excludes it); and it cannot be dodged by making the media
+    /// audio-only, because both `isVideo()` and `presentationType()` are decided
+    /// by the tag name, not by whether a video track exists.
+    ///
+    /// So the only lever is this preference, and it is SPI. That is a trade this
+    /// build can make and a shipping one could not — see CLAUDE.md §4.
+    ///
+    /// **`responds(to:)` cannot answer whether the feature is present.** Both
+    /// accessors are declared unconditionally with their bodies inside
+    /// `#if ENABLE(REQUIRES_PAGE_VISIBILITY_FOR_NOW_PLAYING)`, so a WebKit built
+    /// without it still answers YES and then silently does nothing. Writing
+    /// `true` and reading it back is the only way to tell a live setting from a
+    /// stub — and it doubles as the diagnostic for which build this is.
+    private static func allowNowPlayingWhileHidden(_ preferences: WKPreferences) {
+        let setter = NSSelectorFromString("_setRequiresPageVisibilityForVideoToBeNowPlayingForTesting:")
+        let getter = NSSelectorFromString("_requiresPageVisibilityForVideoToBeNowPlayingForTesting")
+        guard preferences.responds(to: setter), preferences.responds(to: getter) else {
+            #if DEBUG
+            Self.log.notice("visibility preference absent — WebKit predates iOS 18.4")
+            #endif
+            return
+        }
+
+        let spi = unsafeBitCast(preferences, to: NowPlayingVisibilitySPI.self)
+        spi.setRequiresPageVisibilityForVideoToBeNowPlaying(true)
+        guard spi.requiresPageVisibilityForVideoToBeNowPlaying else {
+            #if DEBUG
+            Self.log.notice("visibility preference is a stub — restriction not in this build")
+            #endif
+            return
+        }
+
+        spi.setRequiresPageVisibilityForVideoToBeNowPlaying(false)
+        #if DEBUG
+        Self.log.notice("visibility restriction was live, now disabled")
+        #endif
+    }
+
+    // MARK: - Diagnostics
+
+    /// Whether WebKit currently owns a Now Playing session for this page, plus
+    /// the two things that decide it.
+    ///
+    /// This exists because the failure it diagnoses is otherwise invisible.
+    /// WebKit publishes web media to MediaRemote itself and only for a page it
+    /// considers *visible*; a page it rules ineligible has its card cleared
+    /// without its audio being paused. The symptom is therefore "music plays,
+    /// lock screen is empty", which looks like a missing `MPNowPlayingInfoCenter`
+    /// call and is not one. A WKWebView with no window is not a visible page.
+    ///
+    /// `_hasActiveNowPlayingSession` is SPI, so it is read through
+    /// `responds(to:)` and degrades to `nil`. Diagnostic only — never a control
+    /// path, and never consulted outside DEBUG.
+    func nowPlayingDiagnostics() -> String {
+        let key = "_hasActiveNowPlayingSession"
+        let session = webView.responds(to: NSSelectorFromString(key))
+            ? String(describing: webView.value(forKey: key) as? Bool ?? false)
+            : "unavailable"
+        return "session=\(session) window=\(webView.window != nil) superview=\(webView.superview != nil)"
     }
 }
 
@@ -227,10 +374,14 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             // autoplays it, so only an explicit pause needs sending.
             if !wantsAutoplayOnReady { run("__riff.pause()") }
             scheduleUnmute()
+            pushNowPlayingMetadata()
             flushPendingCommands()
 
         case "state":
             guard let name = payload["state"] as? String else { return }
+            #if DEBUG
+            Self.log.notice("\(name, privacy: .public) \(self.nowPlayingDiagnostics(), privacy: .public)")
+            #endif
             onStateChange?(Self.engineState(named: name))
 
         case "progress":
@@ -243,9 +394,20 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             onStateChange?(.idle)
             onError?(Self.message(forErrorCode: code))
 
+        case "remote":
+            guard let action = payload["action"] as? String else { return }
+            switch action {
+            case "next": onRemoteCommand?(.next)
+            case "previous": onRemoteCommand?(.previous)
+            case "play": onRemoteCommand?(.play)
+            case "pause": onRemoteCommand?(.pause)
+            case "seek": onRemoteCommand?(.seek(payload["time"] as? Double ?? 0))
+            default: break
+            }
+
         case "log":
             #if DEBUG
-            if let text = payload["text"] as? String { print("RIFF js: \(text)") }
+            if let text = payload["text"] as? String { Self.log.debug("js: \(text, privacy: .public)") }
             #endif
 
         default:
