@@ -1,7 +1,11 @@
 import RiffKit
 import SwiftUI
 
-/// Everything saved, alphabetised, with a letter index down the right edge.
+/// The songs you hearted, alphabetised, with a letter index down the right
+/// edge.
+///
+/// This is a list you build deliberately, not everything the app has ever
+/// touched — playing a song from Search does not put it here.
 ///
 /// This is a plain `ScrollView` rather than a `List` on purpose. The reference
 /// draws full-bleed black rows with hairlines inset under the text and a
@@ -13,7 +17,7 @@ struct FavoritesView: View {
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackCoordinator.self) private var playback
 
-    private var tracks: [Track] { library.allTracks }
+    private var tracks: [Track] { library.favorites }
     private var sections: [TrackSection] { TrackSection.sections(for: tracks) }
 
     var body: some View {
@@ -25,7 +29,7 @@ struct FavoritesView: View {
                     EmptyStateView(
                         icon: "heart",
                         title: "No songs yet",
-                        message: "Find music in Search and tap + to save it here."
+                        message: "Tap the heart on a song, or use + in Search, to add it here."
                     )
                 } else {
                     trackList

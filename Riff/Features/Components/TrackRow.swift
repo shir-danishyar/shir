@@ -65,7 +65,6 @@ struct TrackRow: View {
 /// long and the first line alone is often useless.
 struct SearchResultRow: View {
     let video: YouTubeVideo
-    var isInLibrary: Bool
     var onAdd: () -> Void
 
     var body: some View {
@@ -89,14 +88,18 @@ struct SearchResultRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            // Always a +, never a checkmark. It opens the add-to-playlist
+            // sheet, and a song can be in several lists at once, so there is no
+            // single "added" state for this row to show.
             Button(action: onAdd) {
-                Image(systemName: isInLibrary ? "checkmark" : "plus")
+                Image(systemName: "plus")
                     .font(.system(size: 22))
-                    .foregroundStyle(isInLibrary ? Theme.secondaryText : Theme.accent)
+                    .foregroundStyle(Theme.accent)
                     .frame(width: 40, height: 44)
             }
             .buttonStyle(.plain)
-            .disabled(isInLibrary)
+            .accessibilityIdentifier("addResult-\(video.id)")
+            .accessibilityLabel("Add \(video.title) to a playlist")
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)

@@ -22,6 +22,7 @@ struct SearchView: View {
     /// Built lazily because the view model needs clients that live on the
     /// environment, which isn't available at property-initialiser time.
     @State private var model: SearchViewModel?
+    @State private var trackBeingAdded: Track?
     @FocusState private var isFieldFocused: Bool
 
     var body: some View {
@@ -36,6 +37,9 @@ struct SearchView: View {
                 }
             }
             .navigationBarHidden(true)
+            .sheet(item: $trackBeingAdded) { track in
+                AddToPlaylistSheet(track: track)
+            }
         }
         .onAppear {
             if model == nil {
@@ -260,8 +264,7 @@ struct SearchView: View {
                 ForEach(Array(model.results.enumerated()), id: \.element.id) { index, video in
                     SearchResultRow(
                         video: video,
-                        isInLibrary: library.track(id: video.track.id) != nil,
-                        onAdd: { library.upsert(video.track) }
+                        onAdd: { trackBeingAdded = video.track }
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { playFromResults(model: model, index: index) }
@@ -294,14 +297,15 @@ struct SearchView: View {
 
     // MARK: - Actions
 
-    /// Playing and saving are separate, matching the reference: the row plays,
-    /// the + saves. Tapping a result you don't want to keep should not silently
-    /// grow your library — but it does need to be in the catalogue for the
-    /// queue to resolve it later, so the played one is upserted.
+    /// Tapping a result plays it and does nothing else.
+    ///
+    /// It deliberately does not touch the library. `PlaybackQueue` holds `Track`
+    /// values rather than ids, so playback needs nothing stored — and quietly
+    /// saving whatever you listened to is exactly what made every played song
+    /// turn up under My Favorites.
     private func playFromResults(model: SearchViewModel, index: Int) {
         let tracks = model.results.map(\.track)
         guard tracks.indices.contains(index) else { return }
-        library.upsert(tracks[index])
         playback.play(tracks, startingAt: index)
         isFieldFocused = false
     }

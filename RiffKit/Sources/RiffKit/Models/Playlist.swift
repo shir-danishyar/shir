@@ -30,13 +30,45 @@ public struct Library: Codable, Sendable {
     public var tracks: [String: Track]
     public var playlists: [Playlist]
 
-    public init(tracks: [String: Track] = [:], playlists: [Playlist] = []) {
+    /// Songs the user hearted, newest first.
+    ///
+    /// Favorites is its own list rather than "every track in the catalogue".
+    /// A track lands in `tracks` as soon as it is played or added anywhere, and
+    /// conflating that with being a favorite meant simply listening to
+    /// something filed it under My Favorites.
+    public var favoriteTrackIDs: [String]
+
+    public init(
+        tracks: [String: Track] = [:],
+        playlists: [Playlist] = [],
+        favoriteTrackIDs: [String] = []
+    ) {
         self.tracks = tracks
         self.playlists = playlists
+        self.favoriteTrackIDs = favoriteTrackIDs
+    }
+
+    /// Decodes tolerantly, defaulting anything the stored file predates.
+    ///
+    /// This is not politeness, it is data loss prevention. Swift's synthesized
+    /// `Decodable` throws `keyNotFound` for a property that isn't in the JSON,
+    /// and `LibraryStore` handles a decode failure by starting from an empty
+    /// `Library` — so without this, adding any field to this type silently
+    /// deletes every existing user's music the first time they launch.
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tracks = try container.decodeIfPresent([String: Track].self, forKey: .tracks) ?? [:]
+        playlists = try container.decodeIfPresent([Playlist].self, forKey: .playlists) ?? []
+        favoriteTrackIDs = try container.decodeIfPresent([String].self, forKey: .favoriteTrackIDs) ?? []
     }
 
     /// Resolves a playlist's IDs to tracks, dropping any that no longer exist.
     public func tracks(in playlist: Playlist) -> [Track] {
         playlist.trackIDs.compactMap { tracks[$0] }
+    }
+
+    /// Hearted songs, resolved and in order.
+    public var favorites: [Track] {
+        favoriteTrackIDs.compactMap { tracks[$0] }
     }
 }
