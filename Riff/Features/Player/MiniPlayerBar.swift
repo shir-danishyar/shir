@@ -1,56 +1,57 @@
 import RiffKit
 import SwiftUI
 
-/// The always-present bar above the tab bar. Tapping it opens Now Playing.
+/// The bar above the tab bar. Tapping it opens Now Playing.
+///
+/// The reference has no artwork here, which is worth copying rather than
+/// "improving": with the title centred and only one control on the right, the
+/// bar reads as a status line rather than a second, competing player. The
+/// progress hairline sits along the very top edge.
 struct MiniPlayerBar: View {
     @Environment(PlaybackCoordinator.self) private var playback
     let onTap: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            if let track = playback.currentTrack {
-                ArtworkView(url: track.artworkURL, size: 40, seed: abs(track.id.hashValue))
+        VStack(spacing: 0) {
+            progressLine
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.system(size: 14, weight: .medium))
+            HStack(spacing: 10) {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(Theme.secondaryText)
+                    .frame(width: 30)
+
+                VStack(spacing: 1) {
+                    Text(playback.currentTrack?.title ?? "")
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(Theme.primaryText)
                         .lineLimit(1)
-                    Text(track.artist)
+                    Text(playback.currentTrack?.artist ?? "")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.secondaryText)
                         .lineLimit(1)
                 }
-
-                Spacer(minLength: 4)
+                .frame(maxWidth: .infinity)
 
                 Button {
                     playback.togglePlayPause()
                 } label: {
-                    Image(systemName: playback.status.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(Theme.primaryText)
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-
-                Button {
-                    playback.next()
-                } label: {
-                    Image(systemName: "forward.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(Theme.primaryText)
-                        .frame(width: 34, height: 34)
+                    ZStack {
+                        Circle()
+                            .fill(Theme.accent)
+                            .frame(width: 34, height: 34)
+                        Image(systemName: playback.status.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 15, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.horizontal, 8)
+            .frame(height: Theme.miniPlayerHeight)
         }
-        .padding(.horizontal, 10)
-        .frame(height: Theme.miniPlayerHeight)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
-        .overlay(alignment: .bottom) { progressLine }
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerRadius, style: .continuous))
-        .padding(.horizontal, 8)
+        .background(Theme.surfaceRaised)
         .contentShape(Rectangle())
         .onTapGesture(perform: onTap)
     }
@@ -63,5 +64,6 @@ struct MiniPlayerBar: View {
                 .frame(width: proxy.size.width * min(max(fraction, 0), 1), height: 2)
         }
         .frame(height: 2)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

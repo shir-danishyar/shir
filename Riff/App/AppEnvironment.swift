@@ -35,9 +35,12 @@ final class AppEnvironment {
 
         // The client reads the key on every call rather than capturing it, so
         // pasting a key in Settings takes effect without rebuilding anything.
-        youtube = YouTubeSearchClient(apiKeyProvider: { [weak apiKeys] in
-            MainActor.assumeIsolated { apiKeys?.key }
-        })
+        //
+        // It reads the keychain directly rather than the store. The client
+        // calls this from a background async context, and the previous
+        // `MainActor.assumeIsolated { apiKeys?.key }` asserted and killed the
+        // process on the first search — every search crashed the app.
+        youtube = YouTubeSearchClient(apiKeyProvider: { APIKeyStore.currentKey() })
     }
 
     /// Removes a local track's file as well as its library entry, so deleting

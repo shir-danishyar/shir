@@ -10,15 +10,15 @@ import Security
 @MainActor
 @Observable
 final class APIKeyStore {
-    private let service = "com.shirhussain.riff.youtube"
-    private let account = "dataAPIKey"
+    fileprivate static let service = "com.shirhussain.riff.youtube"
+    fileprivate static let account = "dataAPIKey"
 
     private(set) var key: String?
 
     var hasKey: Bool { !(key ?? "").isEmpty }
 
     init() {
-        key = readFromKeychain()
+        key = Self.readFromKeychain()
     }
 
     func save(_ newKey: String) {
@@ -27,7 +27,7 @@ final class APIKeyStore {
             clear()
             return
         }
-        var query = baseQuery()
+        var query = Self.baseQuery()
         SecItemDelete(query as CFDictionary)
         query[kSecValueData as String] = Data(trimmed.utf8)
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
@@ -36,11 +36,30 @@ final class APIKeyStore {
     }
 
     func clear() {
-        SecItemDelete(baseQuery() as CFDictionary)
+        SecItemDelete(Self.baseQuery() as CFDictionary)
         key = nil
     }
 
-    private func baseQuery() -> [String: Any] {
+    /// Reads the key straight from the keychain, from any thread.
+    ///
+    /// This exists because `YouTubeSearchClient` calls its key provider from a
+    /// background async context. The provider used to be
+    /// `MainActor.assumeIsolated { store.key }`, which asserts and kills the
+    /// process the moment a search runs off the main actor — every search
+    /// crashed the app, and no test caught it because none had ever typed a
+    /// query.
+    ///
+    /// `SecItemCopyMatching` is thread-safe, so going to the keychain each time
+    /// is both correct and simpler than mirroring the value behind a lock. It
+    /// also keeps the "paste a key in Settings and search immediately" behaviour
+    /// the provider closure was written for.
+    nonisolated static func currentKey() -> String? {
+        readFromKeychain()
+    }
+
+    // nonisolated because `currentKey()` reaches it from a background context;
+    // the class is @MainActor, so members are main-actor isolated by default.
+    fileprivate nonisolated static func baseQuery() -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -48,7 +67,7 @@ final class APIKeyStore {
         ]
     }
 
-    private func readFromKeychain() -> String? {
+    fileprivate nonisolated static func readFromKeychain() -> String? {
         var query = baseQuery()
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne

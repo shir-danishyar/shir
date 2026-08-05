@@ -1,21 +1,35 @@
 import RiffKit
 import SwiftUI
 
+/// Four tabs, a mini player, and a full-screen Now Playing — the shape the
+/// reference app uses, and the reason its navigation never feels lost: every
+/// screen is at most two taps from playback.
 struct RootTabView: View {
     @Environment(PlaybackCoordinator.self) private var playback
     @State private var isShowingNowPlaying = false
+    @State private var selection: Tab = .favorites
+
+    enum Tab: Hashable {
+        case favorites, playlists, search, more
+    }
 
     var body: some View {
         @Bindable var playback = playback
 
         ZStack(alignment: .bottom) {
-            TabView {
-                LibraryView()
-                    .tabItem { Label("Library", systemImage: "music.note.list") }
+            TabView(selection: $selection) {
+                FavoritesView()
+                    .tabItem { Label("My Favorites", systemImage: "heart.fill") }
+                    .tag(Tab.favorites)
+                PlaylistsView()
+                    .tabItem { Label("Playlists", systemImage: "music.note") }
+                    .tag(Tab.playlists)
                 SearchView()
                     .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                SettingsView()
-                    .tabItem { Label("Settings", systemImage: "gearshape") }
+                    .tag(Tab.search)
+                MoreView()
+                    .tabItem { Label("More", systemImage: "ellipsis") }
+                    .tag(Tab.more)
             }
 
             if playback.hasActiveTrack {
@@ -40,5 +54,27 @@ struct RootTabView: View {
         } message: {
             Text(playback.errorMessage ?? "")
         }
+        .tint(Theme.accent)
+        .onAppear(perform: applyBarAppearance)
+    }
+
+    /// SwiftUI's `TabView` and `NavigationStack` still defer to UIKit's
+    /// appearance proxies for the opaque dark bars this design needs. Without
+    /// this both bars turn translucent over black content and lose their edge.
+    private func applyBarAppearance() {
+        let tab = UITabBarAppearance()
+        tab.configureWithOpaqueBackground()
+        tab.backgroundColor = UIColor(Theme.surfaceRaised)
+        UITabBar.appearance().standardAppearance = tab
+        UITabBar.appearance().scrollEdgeAppearance = tab
+
+        let nav = UINavigationBarAppearance()
+        nav.configureWithOpaqueBackground()
+        nav.backgroundColor = UIColor(Theme.surface)
+        nav.titleTextAttributes = [.foregroundColor: UIColor.white]
+        nav.largeTitleTextAttributes = [.foregroundColor: UIColor.white]
+        UINavigationBar.appearance().standardAppearance = nav
+        UINavigationBar.appearance().scrollEdgeAppearance = nav
+        UINavigationBar.appearance().compactAppearance = nav
     }
 }

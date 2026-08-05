@@ -7,18 +7,20 @@ struct SettingsView: View {
     @State private var draftKey = ""
     @State private var isEditingKey = false
 
+    /// No `NavigationStack` of its own — this is always pushed from More, and
+    /// nesting a second stack inside the tab's one leaves the pushed content
+    /// unreachable to navigation and to UI tests.
     var body: some View {
-        NavigationStack {
-            List {
-                apiKeySection
-                howPlaybackWorksSection
-                storageSection
-            }
-            .listStyle(.insetGrouped)
-            .scrollContentBackground(.hidden)
-            .background(Theme.background)
-            .navigationTitle("Settings")
+        List {
+            apiKeySection
+            howPlaybackWorksSection
+            storageSection
         }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(Theme.background)
+        .navigationTitle("Settings")
+        .navigationBarTitleDisplayMode(.inline)
     }
 
     // MARK: - API key
@@ -69,9 +71,8 @@ struct SettingsView: View {
                 icon: "play.rectangle.fill",
                 title: "YouTube tracks",
                 detail: """
-                Play through YouTube's official embedded player, so the video stays \
-                on screen and YouTube serves whatever ads it normally would. Pauses \
-                when you leave the app.
+                Play in a web view driving YouTube's mobile site, with ads removed \
+                before the player ever sees them. Keeps playing with the screen off.
                 """
             )
             row(
@@ -83,12 +84,12 @@ struct SettingsView: View {
                 """
             )
             row(
-                icon: "info.circle.fill",
-                title: "Why not strip the ads?",
+                icon: "exclamationmark.triangle.fill",
+                title: "When YouTube breaks it",
                 detail: """
-                Pulling YouTube streams into a hidden player breaks their terms and \
-                gets an app removed from the App Store. Import files for uninterrupted \
-                listening, or use a YouTube Premium account.
+                Ad removal depends on YouTube's response format, which changes every \
+                few months. When ads reappear, the fix is a scripts update — nothing \
+                is wrong with your library.
                 """
             )
         } header: {

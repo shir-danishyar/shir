@@ -16,70 +16,67 @@ final class RiffUITests: XCTestCase {
 
     // MARK: - Launch
 
-    func testLaunchesOnLibraryTabWithEmptyState() {
-        XCTAssertTrue(app.staticTexts["Library"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.staticTexts["No playlists yet"].exists)
-        XCTAssertTrue(app.buttons["Create Playlist"].exists)
+    func testLaunchesOnFavoritesWithEmptyState() {
+        XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 10))
     }
 
-    func testAllThreeTabsAreReachable() {
+    func testAllFourTabsAreReachable() {
+        tapTab("Playlists")
+        XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
+
         tapTab("Search")
-        XCTAssertTrue(app.staticTexts["Search"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
 
-        tapTab("Settings")
-        XCTAssertTrue(app.staticTexts["YouTube Data API key"].waitForExistence(timeout: 5))
+        tapTab("More")
+        XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))
 
-        tapTab("Library")
-        XCTAssertTrue(app.staticTexts["No playlists yet"].waitForExistence(timeout: 5))
+        tapTab("My Favorites")
+        XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 5))
     }
 
     // MARK: - Playlists
 
-    func testCreatingPlaylistFromEmptyState() {
-        app.buttons["Create Playlist"].tap()
+    func testCreatingPlaylistFromToolbar() {
+        tapTab("Playlists")
         createPlaylist(named: "Late Night")
 
         XCTAssertTrue(app.staticTexts["Late Night"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["0 songs"].exists)
-        XCTAssertFalse(app.staticTexts["No playlists yet"].exists, "the empty state should be replaced")
+        XCTAssertTrue(app.staticTexts["0 Tracks"].exists)
     }
 
     func testOpeningPlaylistShowsItsEmptyState() {
-        app.buttons["Create Playlist"].tap()
+        tapTab("Playlists")
         createPlaylist(named: "Gym")
 
         app.staticTexts["Gym"].firstMatch.tap()
 
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["Play"].exists)
-        XCTAssertTrue(app.buttons["Shuffle"].exists)
+    }
+
+    /// The derived playlists are always present, even with an empty library,
+    /// because they are sorts rather than stored rows.
+    func testSmartPlaylistsAreAlwaysListed() {
+        tapTab("Playlists")
+        XCTAssertTrue(app.staticTexts["Recently Added"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Recently Played"].exists)
     }
 
     /// Guards the test isolation hook itself: under `-uitesting` each launch
     /// gets a fresh temp store, which is what keeps every other test here
     /// independent of run order.
     func testEachLaunchStartsFromACleanLibrary() {
-        app.buttons["Create Playlist"].tap()
+        tapTab("Playlists")
         createPlaylist(named: "Temporary")
         XCTAssertTrue(app.staticTexts["Temporary"].waitForExistence(timeout: 5))
 
         app.terminate()
         app.launch()
 
-        XCTAssertTrue(app.staticTexts["No playlists yet"].waitForExistence(timeout: 10))
-    }
-
-    func testCreatingSecondPlaylistFromToolbar() {
-        app.buttons["Create Playlist"].tap()
-        createPlaylist(named: "First")
-        XCTAssertTrue(app.staticTexts["First"].waitForExistence(timeout: 5))
-
-        app.navigationBars.buttons.element(boundBy: 0).tap()
-        app.buttons["New Playlist"].tap()
-        createPlaylist(named: "Second")
-
-        XCTAssertTrue(app.staticTexts["Second"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.staticTexts["First"].exists)
+        tapTab("Playlists")
+        XCTAssertFalse(
+            app.staticTexts["Temporary"].waitForExistence(timeout: 3),
+            "a fresh launch should not inherit the previous run's library"
+        )
     }
 
     // MARK: - Search
@@ -89,17 +86,41 @@ final class RiffUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
     }
 
+    /// SwiftUI focuses a field asynchronously after the tap, so `typeText` that
+    /// lands before focus arrives is silently dropped. Rather than sleeping,
+    /// this gates on the clear button, which only renders once the text has
+    /// actually reached the binding — the same technique the API key test uses.
+    func testSearchFieldAcceptsTyping() {
+        tapTab("Search")
+        let field = app.textFields["searchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        _ = app.keyboards.element.waitForExistence(timeout: 5)
+        field.typeText("benyamin")
+
+        let clear = app.buttons["clearSearchButton"]
+        if !clear.waitForExistence(timeout: 3) {
+            field.tap()
+            field.typeText("benyamin")
+        }
+        XCTAssertTrue(clear.waitForExistence(timeout: 5), "typed text should reach the binding")
+        XCTAssertEqual(field.value as? String, "benyamin")
+
+        clear.tap()
+        XCTAssertFalse(clear.waitForExistence(timeout: 2), "clearing should empty the query")
+    }
+
     // MARK: - Settings
 
     func testSettingsExplainsBothPlaybackPaths() {
-        tapTab("Settings")
+        openSettings()
         XCTAssertTrue(app.staticTexts["YouTube tracks"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Imported files"].exists)
-        XCTAssertTrue(app.staticTexts["Why not strip the ads?"].exists)
+        XCTAssertTrue(app.staticTexts["When YouTube breaks it"].exists)
     }
 
     func testSavingAPIKeyUnlocksSearch() {
-        tapTab("Settings")
+        openSettings()
         enterAndSaveAPIKey()
 
         XCTAssertTrue(app.staticTexts["Key saved"].waitForExistence(timeout: 10))
@@ -112,7 +133,7 @@ final class RiffUITests: XCTestCase {
     }
 
     func testRemovingSavedKeyRestoresTheNotice() {
-        tapTab("Settings")
+        openSettings()
         enterAndSaveAPIKey()
         XCTAssertTrue(app.staticTexts["Key saved"].waitForExistence(timeout: 10))
 
@@ -122,15 +143,11 @@ final class RiffUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
     }
 
-    func testLibraryCountsAreShownInSettings() {
-        app.buttons["Create Playlist"].tap()
-        createPlaylist(named: "Counted")
-
-        tapTab("Settings")
-        let playlists = app.staticTexts["Playlists"]
-        XCTAssertTrue(playlists.waitForExistence(timeout: 5))
-        app.swipeUp()
-        XCTAssertTrue(app.staticTexts["Saved songs"].exists)
+    func testMoreTabShowsLibraryCounts() {
+        tapTab("More")
+        XCTAssertTrue(app.staticTexts["Songs"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Playlists"].exists)
+        XCTAssertTrue(app.staticTexts["Imported Files"].exists)
     }
 
     // MARK: - Helpers
@@ -142,6 +159,13 @@ final class RiffUITests: XCTestCase {
         } else {
             app.buttons[name].tap()
         }
+    }
+
+    private func openSettings() {
+        tapTab("More")
+        let settings = app.buttons["settingsRow"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 5))
+        settings.tap()
     }
 
     /// Types a key into the Settings field and saves it.
@@ -171,7 +195,10 @@ final class RiffUITests: XCTestCase {
         save.tap()
     }
 
+    /// Creates a playlist from the Playlists tab's + button.
     private func createPlaylist(named name: String) {
+        app.buttons["newPlaylistButton"].tap()
+
         let alert = app.alerts["New Playlist"]
         XCTAssertTrue(alert.waitForExistence(timeout: 5), "the name prompt should appear")
         let field = alert.textFields.firstMatch

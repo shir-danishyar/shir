@@ -1,23 +1,35 @@
 import RiffKit
 import SwiftUI
 
+/// YouTube search, in the app's own chrome.
+///
+/// This is the half of the Musi architecture that keeps the web view a dumb
+/// player: the video id flows app → player and never the reverse. The user
+/// never sees YouTube's interface, which is both the right product shape and
+/// the reason the page's own search box — which used to crash the app when
+/// tapped — is now unreachable.
 struct SearchView: View {
     @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(LibraryStore.self) private var library
     @Environment(PlaybackCoordinator.self) private var playback
+
+    /// Built lazily because the view model needs the search client, which lives
+    /// on the environment and isn't available at property-initialiser time.
     @State private var model: SearchViewModel?
+    @FocusState private var isFieldFocused: Bool
 
     var body: some View {
         NavigationStack {
-            Group {
+            ZStack {
+                Theme.background.ignoresSafeArea()
+
                 if let model {
                     content(model: model)
                 } else {
                     Color.clear
                 }
             }
-            .background(Theme.background)
-            .navigationTitle("Search")
+            .navigationBarHidden(true)
         }
         .onAppear {
             if model == nil {
@@ -28,87 +40,133 @@ struct SearchView: View {
 
     @ViewBuilder
     private func content(model: SearchViewModel) -> some View {
-        @Bindable var model = model
+        VStack(spacing: 0) {
+            searchField(model: model)
 
-        List {
             if !appEnvironment.apiKeys.hasKey {
                 missingKeyNotice
             } else if let error = model.errorMessage {
                 errorRow(error)
-            } else if model.results.isEmpty && model.hasSearched && !model.isLoading {
+            } else if model.results.isEmpty, model.hasSearched, !model.isLoading {
                 EmptyStateView(
                     icon: "magnifyingglass",
                     title: "No results",
-                    message: "Try a different spelling, or add the artist's name."
+                    message: "Try a different search."
                 )
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
-            } else if model.results.isEmpty && !model.isLoading {
-                EmptyStateView(
-                    icon: "music.note.tv",
-                    title: "Search YouTube",
-                    message: "Results are limited to music videos their uploader allows to be embedded."
-                )
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .padding(.top, 40)
+            } else if !model.results.isEmpty {
+                results(model: model)
+            } else {
+                idlePrompt
             }
 
-            ForEach(model.results) { video in
-                let track = video.track
-                TrackRow(track: track, isCurrent: track.id == playback.currentTrack?.id, showsSourceBadge: false)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        library.upsert(track)
-                        playback.play(model.results.map(\.track), startingAt: model.results.firstIndex(of: video) ?? 0)
-                    }
-                    .listRowBackground(Theme.surface)
-                    .contextMenu { TrackContextMenu(track: track) }
-                    .onAppear { model.loadMoreIfNeeded(currentItem: video) }
-            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func searchField(model: SearchViewModel) -> some View {
+        @Bindable var model = model
+
+        return HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Theme.secondaryText)
+
+            TextField("Search", text: $model.query)
+                .focused($isFieldFocused)
+                .font(.system(size: 17))
+                .foregroundStyle(Theme.primaryText)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+                .submitLabel(.search)
+                .onSubmit { model.submit() }
+                .accessibilityIdentifier("searchField")
 
             if model.isLoading {
-                HStack {
-                    Spacer()
-                    ProgressView().tint(Theme.accent)
-                    Spacer()
+                ProgressView().controlSize(.small).tint(Theme.secondaryText)
+            } else if !model.query.isEmpty {
+                Button {
+                    model.clear()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundStyle(Theme.secondaryText)
                 }
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
+                .buttonStyle(.plain)
+                // Appears only once the typed text has reached the binding,
+                // which makes it the gate a UI test can wait on instead of
+                // sleeping — SwiftUI focuses fields asynchronously and drops
+                // typeText that lands too early.
+                .accessibilityIdentifier("clearSearchButton")
             }
-
-            // Keeps the last row clear of the mini player.
-            Color.clear
-                .frame(height: Theme.miniPlayerHeight)
-                .listRowBackground(Color.clear)
-                .listRowSeparator(.hidden)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .searchable(text: $model.query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Songs, artists, albums")
-        .onSubmit(of: .search) { model.submit() }
+        .padding(.horizontal, 14)
+        .frame(height: 44)
+        .background(Theme.field, in: Capsule())
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 10)
+    }
+
+    private func results(model: SearchViewModel) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(model.results.enumerated()), id: \.element.id) { index, video in
+                    SearchResultRow(
+                        video: video,
+                        isInLibrary: library.track(id: video.track.id) != nil,
+                        onAdd: { library.upsert(video.track) }
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture { playFromResults(model: model, index: index) }
+                    .onAppear { model.loadMoreIfNeeded(currentItem: video) }
+
+                    if index < model.results.count - 1 { RowSeparator() }
+                }
+
+                Color.clear.frame(height: Theme.miniPlayerHeight + 24)
+            }
+        }
+        .scrollIndicators(.hidden)
+        // Matters more here than anywhere else: the results are the whole point
+        // and the keyboard covers half of them.
+        .scrollDismissesKeyboard(.immediately)
+    }
+
+    private var idlePrompt: some View {
+        EmptyStateView(
+            icon: "magnifyingglass",
+            title: "Find music",
+            message: "Search YouTube for a song, artist or mix, then tap + to save it."
+        )
+        .padding(.top, 40)
     }
 
     private var missingKeyNotice: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("YouTube key needed", systemImage: "key.fill")
-                .font(.headline)
-                .foregroundStyle(Theme.primaryText)
-            Text("""
-            Search runs on the official YouTube Data API, which needs your own \
-            API key. Settings has the steps — it takes about two minutes and the \
-            free tier covers roughly 100 searches a day.
-            """)
-            .font(.system(size: 13))
-            .foregroundStyle(Theme.secondaryText)
-        }
-        .padding(.vertical, 8)
-        .listRowBackground(Theme.surface)
+        EmptyStateView(
+            icon: "key",
+            title: "YouTube key needed",
+            message: "Search needs a free YouTube Data API key. Add one in More → Settings."
+        )
+        .padding(.top, 40)
     }
 
     private func errorRow(_ message: String) -> some View {
-        Label(message, systemImage: "exclamationmark.triangle.fill")
-            .font(.system(size: 13))
-            .foregroundStyle(Theme.secondaryText)
-            .listRowBackground(Theme.surface)
+        EmptyStateView(icon: "exclamationmark.triangle", title: "Search failed", message: message)
+            .padding(.top, 40)
+    }
+
+    // MARK: - Actions
+
+    /// Playing and saving are separate, matching the reference: the row plays,
+    /// the + saves. Tapping a result you don't want to keep should not silently
+    /// grow your library — but it does need to be in the catalogue for the
+    /// queue to resolve it later, so the played one is upserted.
+    private func playFromResults(model: SearchViewModel, index: Int) {
+        let tracks = model.results.map(\.track)
+        guard tracks.indices.contains(index) else { return }
+        library.upsert(tracks[index])
+        playback.play(tracks, startingAt: index)
+        isFieldFocused = false
     }
 }

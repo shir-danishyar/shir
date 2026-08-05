@@ -14,11 +14,16 @@ enum PlaybackStatus: Equatable {
 
 /// Owns the queue and routes it to whichever engine can play the current track.
 ///
-/// The two engines are deliberately asymmetric. Local files get lock screen
-/// controls and keep playing in the background. YouTube tracks do not: leaving
-/// the foreground pauses them, because backgrounding the IFrame player to get
-/// audio-only playback is what the YouTube API Services Terms forbid, and it is
-/// the specific behaviour that got Musi removed from the App Store.
+/// Both engines now behave the same from here: lock screen controls, and audio
+/// that continues with the screen off. They get there very differently —
+/// `LocalAudioEngine` through AVFoundation, `YouTubePlayerEngine` through an
+/// active `.playback` session plus visibility overrides injected into the page —
+/// but the coordinator does not need to care, which is the point of the
+/// `PlaybackEngine` protocol.
+///
+/// Until 2026-08-04 the two were deliberately asymmetric and YouTube paused on
+/// backgrounding. That was an App Store constraint, and it left with the App
+/// Store; see CLAUDE.md §2.
 @MainActor
 @Observable
 final class PlaybackCoordinator {
@@ -162,12 +167,15 @@ final class PlaybackCoordinator {
 
     /// Called when the app leaves the foreground.
     ///
-    /// Local files keep playing. YouTube is paused, on purpose — see the note
-    /// on this type.
-    func applicationDidEnterBackground() {
-        guard isPlayingYouTube, status.isPlaying else { return }
-        youtubeEngine.pause()
-    }
+    /// Deliberately does nothing. This used to pause YouTube tracks, because
+    /// the app was aiming at the App Store and backgrounding the IFrame player
+    /// is the specific behaviour that got Musi removed. Riff is now a
+    /// personal-device build (CLAUDE.md §2), so both sources keep playing.
+    ///
+    /// Kept as a hook rather than deleted: it is the single place to reinstate
+    /// the pause if this app is ever pointed back at the App Store, and the
+    /// scene-phase wiring in `RiffApp` already calls it.
+    func applicationDidEnterBackground() {}
 
     // MARK: - Engine plumbing
 

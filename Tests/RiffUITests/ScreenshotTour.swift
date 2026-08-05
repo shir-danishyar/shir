@@ -3,8 +3,9 @@ import XCTest
 /// Walks the app and saves a screenshot of each screen.
 ///
 /// Not an assertion suite — it exists so the UI can be reviewed without anyone
-/// tapping through by hand. Images land in the test runner's Documents
-/// directory; `scripts/screenshots.sh` pulls them back out to `screenshots/`.
+/// tapping through by hand, which matters a lot for a design that is being
+/// matched against reference screenshots. Images land in the test runner's
+/// Documents directory; `scripts/screenshots.sh` pulls them back out.
 final class ScreenshotTour: XCTestCase {
     private var app: XCUIApplication!
 
@@ -16,36 +17,39 @@ final class ScreenshotTour: XCTestCase {
     }
 
     func testCaptureEveryScreen() {
-        XCTAssertTrue(app.staticTexts["No playlists yet"].waitForExistence(timeout: 10))
-        save("01-library-empty")
+        XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 10))
+        save("01-favorites-empty")
 
-        app.buttons["Create Playlist"].tap()
-        let alert = app.alerts["New Playlist"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        let nameField = alert.textFields.firstMatch
-        nameField.tap()
-        nameField.typeText("Late Night")
-        alert.buttons["Create"].tap()
+        tapTab("Playlists")
+        XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
+        save("02-playlists")
 
+        createPlaylist(named: "Late Night")
         XCTAssertTrue(app.staticTexts["Late Night"].waitForExistence(timeout: 5))
-        save("02-library-with-playlist")
+        save("03-playlists-with-one")
 
         app.staticTexts["Late Night"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 5))
-        save("03-playlist-detail")
-
+        save("04-playlist-detail")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         tapTab("Search")
         XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
-        save("04-search")
+        save("05-search")
 
-        tapTab("Settings")
-        XCTAssertTrue(app.staticTexts["YouTube Data API key"].waitForExistence(timeout: 5))
-        save("05-settings-top")
+        tapTab("More")
+        XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))
+        save("06-more")
+
+        app.buttons["settingsRow"].tap()
+        // Assert on the nav bar rather than the section header: iOS
+        // uppercases grouped-list headers, so matching the literal source
+        // string silently never matches.
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 5))
+        save("07-settings")
 
         app.swipeUp()
-        save("06-settings-playback")
+        save("08-settings-playback")
     }
 
     // MARK: - Helpers
@@ -53,6 +57,16 @@ final class ScreenshotTour: XCTestCase {
     private func tapTab(_ name: String) {
         let tab = app.tabBars.buttons[name]
         if tab.waitForExistence(timeout: 5) { tab.tap() } else { app.buttons[name].tap() }
+    }
+
+    private func createPlaylist(named name: String) {
+        app.buttons["newPlaylistButton"].tap()
+        let alert = app.alerts["New Playlist"]
+        XCTAssertTrue(alert.waitForExistence(timeout: 5))
+        let field = alert.textFields.firstMatch
+        field.tap()
+        field.typeText(name)
+        alert.buttons["Create"].tap()
     }
 
     private func save(_ name: String) {
