@@ -268,6 +268,9 @@ struct SearchView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { playFromResults(model: model, index: index) }
+                    // The row is a tap gesture rather than a Button, so it has
+                    // no implicit identifier for a UI test to aim at.
+                    .accessibilityIdentifier("resultRow-\(video.id)")
 
                     if index < model.results.count - 1 { RowSeparator() }
                 }
