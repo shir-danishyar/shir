@@ -151,44 +151,6 @@ Nothing to configure. Search needs no API key and no account — see §3a.
 Deploying to a physical device needs a signing team set in Xcode. That is a manual,
 interactive step — an agent cannot do it for you.
 
-### The lock screen belongs to WebKit, not to us
-
-`MPNowPlayingInfoCenter` and `MPRemoteCommandCenter` **do not work for YouTube
-tracks**, and no amount of Swift fixes that. The mechanism:
-
-- WebKit writes MediaRemote directly from the WebContent process with a REPLACE
-  merge policy, against the same per-app origin `MPNowPlayingInfoCenter` writes
-  to, and re-arms on a repeating timer. Anything Swift sets while the page's
-  `<video>` is playing is overwritten within a tick.
-- WebKit rebuilds the lock screen's button set as *{actions the page registered}
-  ∪ {play, pause}*. `NextTrack` is not in its default set. **So a next button
-  exists if and only if the page registers a `nexttrack` handler** — which is
-  why enabling `MPRemoteCommandCenter.nextTrackCommand` did nothing.
-
-`MediaSession.js` therefore owns `navigator.mediaSession` and forwards presses
-to Swift as `{kind: "remote", action: ...}`. Rules:
-
-1. **It is injected first**, so it captures the pristine prototype methods before
-   anything can wrap them.
-2. **`setActionHandler` and `metadata` are locked with `configurable: false`.**
-   YouTube re-registers its handlers several times per track change and would
-   otherwise make the next button advance *its* playlist, and would put the
-   advertiser's name on the card during a pre-roll. The lock swallows rather
-   than throws — YouTube's bundle is strict mode, and a blank lock screen is a
-   much better failure than no music.
-3. **`seekforward` and `seekbackward` are nulled deliberately.** Skip-15s
-   occupies the same two slots as previous/next, so leaving them registered
-   means no track buttons at all.
-4. **`next`/`previous` do not act locally** — they report to Swift so *Shir's*
-   queue advances, not YouTube's autoplay. `play`/`pause`/`seek` do act locally
-   first, so a press doesn't wait on a backgrounded host process.
-5. **Metadata goes through `jsString`, not `escape`.** A newline or U+2028 in a
-   YouTube title would be a syntax error, and the push would fail silently.
-
-`MPNowPlayingInfoCenter` is still correct for imported files, which play through
-`AVPlayer` and own the session natively. Both paths coexist; only the YouTube one
-routes through the page.
-
 ## 3a. Search, without an API key
 
 `InnerTubeSearchClient` runs YouTube's own search request from inside a real, first-party
