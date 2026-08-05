@@ -46,6 +46,18 @@ final class SpikeController: NSObject {
         installUserScripts(into: controller)
         webView.navigationDelegate = self
 
+        // The rule: this is a player surface, not a browser. The user
+        // drives playback from the app's own UI and never touches YouTube's.
+        //
+        // Beyond being the right product shape, it fixes a hard crash. Tapping
+        // YouTube's search box killed the app with an uncaught UIKit exception
+        // from UIGestureGraph addUniqueEdgeWithLabel: WKWebView's gesture
+        // recognizers and YouTube's formed a conflicting edge during touch
+        // delivery. No touches reach the web view, no gesture graph to corrupt.
+        webView.isUserInteractionEnabled = false
+        webView.scrollView.isScrollEnabled = false
+        webView.allowsBackForwardNavigationGestures = false
+
         configureAudioSession()
         configureRemoteCommands()
     }
@@ -63,7 +75,7 @@ final class SpikeController: NSObject {
         // window.webkit.messageHandlers lookup finds nothing.
         controller.add(self, contentWorld: .page, name: "spike")
 
-        for name in ["AdStrip", "BackgroundPlay", "Bridge"] {
+        for name in ["AdStrip", "BackgroundPlay", "PlayerSurface", "Bridge"] {
             guard let url = Bundle.main.url(forResource: name, withExtension: "js"),
                   let source = try? String(contentsOf: url, encoding: .utf8) else {
                 append("MISSING SCRIPT: \(name).js — check the XcodeGen resource phase")
@@ -128,11 +140,53 @@ final class SpikeController: NSObject {
 
     // MARK: - Actions
 
+    /// Set immediately before any `webView.load`, and consumed by the
+    /// navigation policy below. Anything arriving without it came from the page.
+    private var appInitiatedNavigation = false
+
     func start() {
         let url = URL(string: "https://m.youtube.com/watch?v=\(currentTrack.id)")!
         append("loading \(url.absoluteString)")
+        appInitiatedNavigation = true
         webView.load(URLRequest(url: url))
         updateNowPlaying()
+    }
+
+    /// Play an arbitrary video without touching YouTube's UI — the point being
+    /// that the app supplies the video id, from its own search or library.
+    /// Accepts a bare id, a watch URL, or a youtu.be link.
+    func play(input: String) {
+        guard let id = Self.videoID(from: input) else {
+            append("could not read a video id from '\(input)'")
+            return
+        }
+        append("── loading \(id) from app UI")
+        run("__spike.load('\(id)')", label: "load")
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.unmute()
+            try? await Task.sleep(for: .seconds(2))
+            self?.probe(label: "after manual load")
+        }
+    }
+
+    static func videoID(from input: String) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let components = URLComponents(string: trimmed), components.host != nil {
+            if let v = components.queryItems?.first(where: { $0.name == "v" })?.value {
+                return v
+            }
+            // youtu.be/<id> and /shorts/<id>
+            let path = components.path.split(separator: "/").map(String.init)
+            if let last = path.last, last.count >= 8 { return last }
+            return nil
+        }
+        // A bare id: 11 chars of the YouTube alphabet.
+        let allowed = CharacterSet(charactersIn:
+            "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+        return trimmed.unicodeScalars.allSatisfy(allowed.contains) ? trimmed : nil
     }
 
     /// Criterion 1. Called from the lock screen while backgrounded.
@@ -299,6 +353,35 @@ extension SpikeController: WKScriptMessageHandler {
 // MARK: - Navigation
 
 extension SpikeController: WKNavigationDelegate {
+
+    /// Only navigations this app started are allowed through.
+    ///
+    /// Disabling user interaction stops taps, but YouTube can still navigate
+    /// itself — an interstitial, a redirect to the app store, a "sign in"
+    /// bounce. Any of those would tear down the document and with it the audio
+    /// session, which is the one thing the whole design depends on not
+    /// happening. Track changes are unaffected: `loadVideoById` swaps in place
+    /// and never triggers a navigation, which the spike already proved.
+    nonisolated func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            guard navigationAction.targetFrame?.isMainFrame == true else {
+                decisionHandler(.allow)   // subframes are the player's own business
+                return
+            }
+            if appInitiatedNavigation {
+                appInitiatedNavigation = false
+                decisionHandler(.allow)
+            } else {
+                let url = navigationAction.request.url?.absoluteString ?? "—"
+                append("BLOCKED navigation: \(url)")
+                decisionHandler(.cancel)
+            }
+        }
+    }
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in

@@ -3,6 +3,7 @@ import WebKit
 
 struct ContentView: View {
     @Bindable var controller: SpikeController
+    @State private var videoInput = ""
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,6 +41,20 @@ struct ContentView: View {
             }
             .buttonStyle(.bordered)
 
+            // Stands in for Shir's real search results. The point is that the
+            // video id comes from the app, never from tapping YouTube's UI.
+            HStack(spacing: 8) {
+                TextField("video id or YouTube link", text: $videoInput)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .font(.system(size: 13, design: .monospaced))
+                    .onSubmit { load() }
+                Button("Load") { load() }
+                    .buttonStyle(.bordered)
+                    .disabled(videoInput.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+
             Text("Lock the phone, then press ▶▶ on the lock screen. That is criterion 1.")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
@@ -69,8 +84,14 @@ struct ContentView: View {
         }
     }
 
+    private func load() {
+        controller.play(input: videoInput)
+        videoInput = ""
+    }
+
     private func colour(for line: String) -> Color {
         if line.contains("ERROR") || line.contains("FAILED") || line.contains("MISSING") { return .red }
+        if line.contains("BLOCKED") { return .orange }
         if line.contains("stripped") { return .green }
         if line.contains("──") { return .orange }
         return .primary

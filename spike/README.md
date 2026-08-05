@@ -75,6 +75,48 @@ The simulator cannot answer these honestly:
   and that ads are stripped; it does not prove a single sample of audio was
   produced. Unmuted playback needs a real user gesture on a real device.
 
+### Finding 8 — the web view must be a player, not a browser
+
+Tapping YouTube's search box **crashed the app**. Decoded from
+`~/Library/Logs/DiagnosticReports/BackgroundPlaySpike-*.ips`:
+
+```
+objc_exception_throw
+_userInfoForFileAndLine
+-[UIGestureGraphEdge initWithLabel:sourceNode:targetNode:directed:]
+-[UIGestureGraph addUniqueEdgeWithLabel:sourceNode:targetNode:directed:]
+-[UIWindow sendEvent:]
+```
+
+An uncaught UIKit exception during touch delivery: WKWebView's gesture
+recognizers and the ones YouTube's search UI installs formed a conflicting edge
+in the gesture graph. SIGABRT on the main thread.
+
+The fix is not to wrangle the gesture graph. **It is that the user should never
+be touching YouTube's interface at all** — which is how such clients worked, and how
+Shir is meant to work:
+
+- the app owns search, playlists and the queue
+- the web view is a dumb surface that renders video
+- YouTube's site is an implementation detail the user never sees
+
+Three changes enforce it:
+
+1. `webView.isUserInteractionEnabled = false`, scrolling and back/forward
+   gestures off. No touches reach the web view, so there is no gesture graph to
+   corrupt. This alone removes the crash.
+2. `PlayerSurface.js` hides YouTube's chrome — topbar, pivot bar, related
+   videos, comments, promos — leaving the player on black.
+3. A `decidePolicyFor` navigation policy cancels any main-frame navigation the
+   app did not initiate. Touches are already blocked, but YouTube can navigate
+   *itself* — an interstitial, a sign-in bounce, an app-store redirect — and any
+   of those would tear down the document and the audio session with it. Track
+   changes are unaffected, because `loadVideoById` swaps in place (finding 4).
+
+Shir already has the other half: `ShirKit`'s `YouTubeSearchClient` searches with
+`videoEmbeddable=true` and `videoCategoryId=10`, so only playable music comes
+back. The video id flows app → player, never the reverse.
+
 ## Device test procedure
 
 1. Set a signing team on the `BackgroundPlaySpike` target in Xcode.
