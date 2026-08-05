@@ -40,10 +40,13 @@ struct TrackContextMenu: View {
 
         Divider()
 
-        Button(role: .destructive) {
-            library.deleteTrack(id: track.id)
+        Button {
+            library.toggleFavorite(track)
         } label: {
-            Label("Remove from Library", systemImage: "trash")
+            Label(
+                library.isFavorite(track.id) ? "Remove from Favorites" : "Add to Favorites",
+                systemImage: library.isFavorite(track.id) ? "heart.slash" : "heart"
+            )
         }
     }
 }

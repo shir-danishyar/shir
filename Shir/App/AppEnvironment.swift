@@ -19,6 +19,12 @@ final class AppEnvironment {
         ProcessInfo.processInfo.arguments.contains("-uitesting")
     }
 
+    /// Puts a couple of known tracks in the catalogue — but not in Favorites —
+    /// so the flow tests can exercise play-versus-favorite without a network.
+    private static var wantsSeedData: Bool {
+        ProcessInfo.processInfo.arguments.contains("-seedLibrary")
+    }
+
     init() {
         // Under -uitesting both stores point at a fresh temp directory, so each
         // run starts clean rather than inheriting the last one.
@@ -38,6 +44,18 @@ final class AppEnvironment {
         playback = PlaybackCoordinator()
         youtube = InnerTubeSearchClient()
         suggestions = SuggestionClient()
+
+        if Self.wantsSeedData {
+            for name in ["A", "B"] {
+                library.upsert(
+                    .youtube(
+                        videoID: "seed\(name)",
+                        title: "Seeded Song \(name)",
+                        channelTitle: "Seeded Channel"
+                    )
+                )
+            }
+        }
     }
 
     /// Removes a local track's file as well as its library entry, so deleting

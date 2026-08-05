@@ -189,6 +189,38 @@ Rules:
 5. **`params: 'EgIQAQ=='`** filters to videos, dropping Shorts, channels and playlist
    shelves — which removes most of the parsing edge cases.
 
+## 3b. Favorites, and what a tap means
+
+**My Favorites is a list the user builds, not "everything the app has seen".**
+It is `Library.favoriteTrackIDs`, separate from the `tracks` catalogue.
+
+That distinction is the whole point, and getting it wrong was a real bug:
+`SearchView` used to `upsert` a track before playing it so the queue could
+resolve it later, which meant every song you merely listened to appeared under
+My Favorites. `PlaybackQueue` holds `Track` values rather than ids, so playback
+needs nothing stored at all.
+
+The rules, each with a test:
+
+1. **Tapping a song plays it and touches nothing else.** No library write, no
+   favorite, no checkmark.
+2. **`+` opens `AddToPlaylistSheet`.** Every row is a toggle, so the checkmarks
+   double as "which lists is this song already in". My Favorites sits there as
+   one list among several, which is what it is.
+3. **The heart is the only control that adds to Favorites** — in Now Playing,
+   in the sheet, and in the long-press menu.
+4. **Un-favoriting leaves the track in the catalogue**, so playlists containing
+   it and the queue playing it are unaffected.
+5. **Search result rows always show `+`, never a checkmark.** A song can be in
+   several lists at once, so there is no single "added" state to show.
+
+`Library` decodes tolerantly (`init(from:)` with `decodeIfPresent` defaults).
+Keep it that way. Without it, adding any field to that type throws
+`keyNotFound`, and `LibraryStore` reacts to a decode failure by starting from an
+empty `Library` — silently deleting every existing user's music on first launch.
+There is a test that loads a favorites-less library file and asserts the music
+survives.
+
 ### Suggestions and history
 
 `SuggestionClient` fetches YouTube's autocomplete — the same endpoint its own

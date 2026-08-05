@@ -59,6 +59,8 @@ struct NowPlayingView: View {
                         .foregroundStyle(Theme.primaryText)
                         .frame(width: 44, height: 44)
                 }
+                .accessibilityIdentifier("dismissNowPlaying")
+                .accessibilityLabel("Close Now Playing")
                 Spacer()
                 Button { isShowingQueue = true } label: {
                     Image(systemName: "list.bullet")
@@ -155,6 +157,8 @@ struct NowPlayingView: View {
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("favoriteToggle")
+            .accessibilityLabel(isSaved ? "Remove from Favorites" : "Add to Favorites")
         }
         .padding(.horizontal, 14)
         .padding(.top, 18)
@@ -162,16 +166,15 @@ struct NowPlayingView: View {
 
     private var isSaved: Bool {
         guard let track = playback.currentTrack else { return false }
-        return library.track(id: track.id) != nil
+        return library.isFavorite(track.id)
     }
 
+    /// The heart is the only control that adds to My Favorites. Unfavoriting
+    /// leaves the track in the catalogue, so playlists that contain it and the
+    /// queue that is playing it are unaffected.
     private func toggleSaved() {
         guard let track = playback.currentTrack else { return }
-        if isSaved {
-            library.deleteTrack(id: track.id)
-        } else {
-            library.upsert(track)
-        }
+        library.toggleFavorite(track)
     }
 
     // MARK: - Transport

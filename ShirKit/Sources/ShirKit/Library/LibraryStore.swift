@@ -133,6 +133,41 @@ public final class LibraryStore {
         }
     }
 
+    // MARK: - Favorites
+    //
+    // Favorites is a list the user builds by tapping the heart, not a synonym
+    // for the catalogue. Playing a song puts it in `tracks` so the queue and
+    // history can resolve it later; that must not make it a favorite.
+
+    public var favorites: [Track] { library.favorites }
+
+    public func isFavorite(_ trackID: String) -> Bool {
+        library.favoriteTrackIDs.contains(trackID)
+    }
+
+    public func addToFavorites(_ track: Track) {
+        // Checked before the upsert: `upsert` persists, so doing it first would
+        // cost a write even when this call changes nothing.
+        guard !library.favoriteTrackIDs.contains(track.id) else { return }
+        let stored = upsert(track)
+        library.favoriteTrackIDs.insert(stored.id, at: 0)
+        persist()
+    }
+
+    public func removeFromFavorites(trackID: String) {
+        guard library.favoriteTrackIDs.contains(trackID) else { return }
+        library.favoriteTrackIDs.removeAll { $0 == trackID }
+        persist()
+    }
+
+    public func toggleFavorite(_ track: Track) {
+        if isFavorite(track.id) {
+            removeFromFavorites(trackID: track.id)
+        } else {
+            addToFavorites(track)
+        }
+    }
+
     // MARK: - Internals
 
     private func index(ofPlaylist id: UUID) -> Int? {
