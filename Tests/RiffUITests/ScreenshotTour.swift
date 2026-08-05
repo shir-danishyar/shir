@@ -34,7 +34,7 @@ final class ScreenshotTour: XCTestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         tapTab("Search")
-        XCTAssertTrue(app.staticTexts["YouTube key needed"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
         save("05-search")
 
         tapTab("More")

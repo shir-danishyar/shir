@@ -43,9 +43,7 @@ struct SearchView: View {
         VStack(spacing: 0) {
             searchField(model: model)
 
-            if !appEnvironment.apiKeys.hasKey {
-                missingKeyNotice
-            } else if let error = model.errorMessage {
+            if let error = model.errorMessage {
                 errorRow(error)
             } else if model.results.isEmpty, model.hasSearched, !model.isLoading {
                 EmptyStateView(
@@ -119,7 +117,6 @@ struct SearchView: View {
                     )
                     .contentShape(Rectangle())
                     .onTapGesture { playFromResults(model: model, index: index) }
-                    .onAppear { model.loadMoreIfNeeded(currentItem: video) }
 
                     if index < model.results.count - 1 { RowSeparator() }
                 }
@@ -138,15 +135,6 @@ struct SearchView: View {
             icon: "magnifyingglass",
             title: "Find music",
             message: "Search YouTube for a song, artist or mix, then tap + to save it."
-        )
-        .padding(.top, 40)
-    }
-
-    private var missingKeyNotice: some View {
-        EmptyStateView(
-            icon: "key",
-            title: "YouTube key needed",
-            message: "Search needs a free YouTube Data API key. Add one in More → Settings."
         )
         .padding(.top, 40)
     }

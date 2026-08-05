@@ -2,11 +2,12 @@ import Foundation
 import Observation
 import RiffKit
 
-/// Debounced search over the YouTube Data API.
+/// Debounced YouTube search.
 ///
-/// The debounce is not just polish: each search costs 100 quota units against a
-/// default daily allowance of 10,000, so firing on every keystroke would burn
-/// the day's budget in a couple of minutes.
+/// The debounce used to exist for quota — each Data API search cost 100 units
+/// against a 10,000/day allowance. That reason is gone with the API key, but a
+/// better one replaced it: every keystroke would otherwise be a ~119KB transfer
+/// and a JSON parse inside the same process decoding audio.
 @MainActor
 @Observable
 final class SearchViewModel {
@@ -19,25 +20,18 @@ final class SearchViewModel {
     private(set) var errorMessage: String?
     private(set) var hasSearched = false
 
-    private let client: YouTubeSearchClient
+    private let client: InnerTubeSearchClient
     private var searchTask: Task<Void, Never>?
-    private var nextPageToken: String?
 
     private let debounceNanoseconds: UInt64 = 450_000_000
 
-    init(client: YouTubeSearchClient) {
+    init(client: InnerTubeSearchClient) {
         self.client = client
     }
 
     func submit() {
         searchTask?.cancel()
-        runSearch(resetting: true)
-    }
-
-    func loadMoreIfNeeded(currentItem: YouTubeVideo) {
-        guard let last = results.last, last.id == currentItem.id else { return }
-        guard nextPageToken != nil, !isLoading else { return }
-        runSearch(resetting: false)
+        runSearch()
     }
 
     func clear() {
@@ -46,7 +40,6 @@ final class SearchViewModel {
         results = []
         errorMessage = nil
         hasSearched = false
-        nextPageToken = nil
     }
 
     private func scheduleSearch() {
@@ -61,31 +54,22 @@ final class SearchViewModel {
         searchTask = Task { [debounceNanoseconds] in
             try? await Task.sleep(nanoseconds: debounceNanoseconds)
             guard !Task.isCancelled else { return }
-            runSearch(resetting: true)
+            runSearch()
         }
     }
 
-    private func runSearch(resetting: Bool) {
+    private func runSearch() {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let token = resetting ? nil : nextPageToken
         isLoading = true
         errorMessage = nil
 
         searchTask = Task {
             do {
-                let page = try await client.search(query: trimmed, pageToken: token)
+                let videos = try await client.search(query: trimmed)
                 guard !Task.isCancelled else { return }
-                if resetting {
-                    results = page.videos
-                } else {
-                    // Paging can echo a result that was already on screen;
-                    // dropping duplicates keeps SwiftUI's ForEach ids unique.
-                    let known = Set(results.map(\.id))
-                    results.append(contentsOf: page.videos.filter { !known.contains($0.id) })
-                }
-                nextPageToken = page.nextPageToken
+                results = videos
                 hasSearched = true
             } catch is CancellationError {
                 return

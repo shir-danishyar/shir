@@ -63,22 +63,22 @@ constraint that was doing all the work.
 
 ### To revert to a shippable app
 
-Restore three rules, all of which the git history still contains:
+Restore four rules, all of which the git history still contains:
 
 1. Player stays visible — mount the web view at 16:9 whenever a YouTube track is loaded.
 2. `PlaybackCoordinator.applicationDidEnterBackground()` pauses YouTube tracks.
 3. No script injection of any kind into YouTube pages.
+4. Search through the official Data API v3 with a user-supplied key, rather than InnerTube.
+   `git show c7fc009:RiffKit/Sources/RiffKit/YouTube/YouTubeSearchClient.swift` has the
+   whole implementation, tests included.
 
-Rule 3 below (`videoEmbeddable`/`videoCategoryId`) is **not** part of the reverted set — it
-is good behaviour regardless and has a test asserting it. Keep it.
+## 3. Ad blocking and background audio
 
-## 3. Ad blocking and background audio — the design
+**STATUS: built and shipping.** `YouTubePlayerEngine` drives `m.youtube.com` first-party
+with four injected scripts; `applicationDidEnterBackground()` is an empty hook.
 
-**STATUS: agreed, NOT YET BUILT.** As of the last commit, `YouTubePlayerEngine` still uses
-the cross-origin IFrame embed and `applicationDidEnterBackground()` still pauses YouTube.
-Do not describe the design below as if it ships. Build it, then update this section.
-
-The research behind it is in `docs/superpowers/specs/` — read the spec before implementing.
+The research behind it is in `docs/superpowers/specs/` — worth reading before changing any
+of this, because most of the rules below look arbitrary until you know what they cost.
 
 ### The core technique
 
@@ -146,13 +146,54 @@ xcodegen generate              # regenerate Riff.xcodeproj after touching projec
 open Riff.xcodeproj
 ```
 
-Search needs a YouTube Data API key, entered in the app's Settings tab (stored in the
-keychain). Create one at console.cloud.google.com → enable "YouTube Data API v3" →
-Credentials → API key. Free tier is 10,000 quota units/day; one search costs 100, which
-is why `SearchViewModel` debounces at 450ms.
+Nothing to configure. Search needs no API key and no account — see §3a.
 
 Deploying to a physical device needs a signing team set in Xcode. That is a manual,
 interactive step — an agent cannot do it for you.
+
+## 3a. Search, without an API key
+
+`InnerTubeSearchClient` runs YouTube's own search request from inside a real, first-party
+`m.youtube.com` document, and reads the results back. This is how the app searches; the
+Data API v3 client it replaced is gone (§2, revert rule 4).
+
+Three facts make it work, all verified live rather than assumed:
+
+- **No key is needed.** The `key` parameter is ignored — a deliberately bogus key returns
+  the same 200 and the same results as the real one. yt-dlp and NewPipe both stopped
+  sending it. So Riff sends none, which also removes the "whose key is this?" question.
+- **Search needs no bot attestation.** PoToken and BotGuard gate `/youtubei/v1/player`,
+  not `/youtubei/v1/search`. yt-dlp's source defines PO token policies for streams, player
+  and subtitles and has *no* search policy at all. That split is why this works while
+  stream extraction does not — and it is why Riff does not extract streams.
+- **In-page beats a native request.** A same-origin `fetch` inherits the page's cookies
+  (including HttpOnly ones), a browser-set `Origin` and `Referer` that page JS cannot
+  forge, and `ytcfg`'s `INNERTUBE_CONTEXT` — which carries server-minted `visitorData`,
+  `rolloutToken` and `appInstallData` that cannot be fabricated at all.
+
+Rules:
+
+1. **Search gets its own web view, separate from the player's.** `AdStrip.js` patches
+   `window.fetch` and matches `/youtubei/v1/search`, so sharing would route every search
+   through the ad-stripper — a clone and a full JSON parse of a ~119KB body, in the
+   process decoding audio, to remove nothing. Separate configurations make that
+   impossible rather than something to remember. Cookies are still shared, because
+   `websiteDataStore` defaults to the process-wide store.
+2. **The host document must be a real YouTube page.** A blank document with a `baseURL`
+   would give the right origin but no `ytcfg`, and `ytcfg` is the entire reason for using
+   a web view.
+3. **`ytcfg` does not exist at `.atDocumentStart`.** Read it lazily, at search time.
+4. **Never persist a response thumbnail URL.** They carry expiring `sqp`/`rs` signature
+   params. Use `https://i.ytimg.com/vi/<id>/hqdefault.jpg`, which does not expire. There
+   is a test for this.
+5. **`params: 'EgIQAQ=='`** filters to videos, dropping Shorts, channels and playlist
+   shelves — which removes most of the parsing edge cases.
+
+**What was lost:** the Data API's `videoEmbeddable=true` and `videoCategoryId=10` filters
+have no InnerTube equivalent, so a non-embeddable video can now reach the queue. The
+authoritative signal is at playback instead — IFrame error codes **101** and **150** mean
+"embedding disabled by owner". `YouTubePlayerEngine` reports those; skipping the track
+automatically is not implemented yet.
 
 ## 5. Testing
 
@@ -217,9 +258,16 @@ Riff/
   JavaScript and is never mirrored into Swift. Filter data is extracted by a committed
   script, never hand-copied. If you find yourself typing the same constant twice, the
   second one is a bug waiting for the first one to change.
-- **Use skills.** Check for a relevant skill before starting any non-trivial task and
-  invoke it. `superpowers:brainstorming` before designing, `superpowers:writing-plans`
-  before implementing, `superpowers:systematic-debugging` before guessing at a bug.
+- **Use skills, every time.** Check for a relevant skill before starting any non-trivial
+  task and invoke it — this is not optional and not a judgement call.
+  `superpowers:brainstorming` before designing, `superpowers:writing-plans` before
+  implementing, `superpowers:systematic-debugging` before guessing at a bug,
+  `superpowers:verification-before-completion` before claiming something works.
+  Process skills come first and set the approach; implementation skills follow.
+- **Gather context with subagents.** Before writing against an unfamiliar API or making an
+  architectural call, dispatch agents to read the actual source and report exact
+  signatures. Every significant decision in this project was made this way, and twice it
+  reversed the answer.
 - **Use context7 for library and API documentation.** Prefer it over recollection or web
   search for anything about a framework, SDK, or CLI — including Apple's. Training data
   goes stale; this project depends on WebKit behaviour that changes between iOS releases.
@@ -229,6 +277,21 @@ Riff/
   the file and line.
 - **Say what is not built.** Design decisions and shipped code are different things.
   Mark planned work as planned — a doc that overstates reality costs more than no doc.
+- **YAGNI.** Build what is needed now, not what might be needed. This project has already
+  been saved real weeks by it twice: embedding Brave's Rust engine was 10–12 days to
+  deliver a string constant we already had, and a Piped-style backend would have made us
+  the operator of a service. When a feature is genuinely coming, leave a documented seam —
+  not an abstraction with one implementation.
+- **DRY, with a caveat.** One fact, one place. But two things that merely *look* alike are
+  not duplication — `TrackCollectionView` was extracted because both playlist screens are
+  the same screen, whereas the two playback engines stay separate because they only
+  resemble each other from the outside.
+- **No dead code, no commented-out code.** Git remembers. A deleted thing that mattered
+  gets a note in the doc comment explaining why it went, like
+  `applicationDidEnterBackground()`.
+- **Fix the cause, not the symptom.** The web view crash was a gesture-graph conflict; the
+  fix was making it a player instead of a browser. Reach for the reason one layer down
+  before patching what you can see.
 
 ### Code
 

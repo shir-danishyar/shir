@@ -2,17 +2,14 @@ import RiffKit
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(AppEnvironment.self) private var appEnvironment
     @Environment(LibraryStore.self) private var library
-    @State private var draftKey = ""
-    @State private var isEditingKey = false
 
     /// No `NavigationStack` of its own — this is always pushed from More, and
     /// nesting a second stack inside the tab's one leaves the pushed content
     /// unreachable to navigation and to UI tests.
     var body: some View {
         List {
-            apiKeySection
+            howSearchWorksSection
             howPlaybackWorksSection
             storageSection
         }
@@ -23,43 +20,20 @@ struct SettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    // MARK: - API key
+    // MARK: - How search works
 
-    private var apiKeySection: some View {
+    private var howSearchWorksSection: some View {
         Section {
-            if appEnvironment.apiKeys.hasKey && !isEditingKey {
-                HStack {
-                    Label("Key saved", systemImage: "checkmark.seal.fill")
-                        .foregroundStyle(.green)
-                    Spacer()
-                    Button("Change") {
-                        draftKey = ""
-                        isEditingKey = true
-                    }
-                }
-                Button("Remove Key", role: .destructive) {
-                    appEnvironment.apiKeys.clear()
-                }
-            } else {
-                SecureField("AIza…", text: $draftKey)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Button("Save Key") {
-                    appEnvironment.apiKeys.save(draftKey)
-                    draftKey = ""
-                    isEditingKey = false
-                }
-                .disabled(draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            }
+            row(
+                icon: "magnifyingglass.circle.fill",
+                title: "No account, no key",
+                detail: """
+                Search runs YouTube's own request from inside a real page, so it \
+                needs no API key and no sign-in. There is no daily quota to run out of.
+                """
+            )
         } header: {
-            Text("YouTube Data API key")
-        } footer: {
-            Text("""
-            Create a project at console.cloud.google.com, enable “YouTube Data API v3”, \
-            then make an API key under Credentials. The key is stored in your device \
-            keychain and only ever sent to Google. The free tier is 10,000 quota units \
-            a day, and one search costs 100.
-            """)
+            Text("How search works")
         }
     }
 

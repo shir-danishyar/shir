@@ -15,16 +15,10 @@ targets:
     type: application
     platform: iOS
     sources:
-      # .js has no default build phase in Xcode, so the injected player scripts
-      # are split out and forced into Resources. Without this,
-      # Bundle.main.url(forResource:withExtension:"js") returns nil at runtime
-      # and every script silently goes missing — which presents as "the ads are
-      # back", not as a build error.
+      # The injected player scripts live in RiffKit, not here — SwiftPM handles
+      # them as package resources, and that is what lets them be unit-tested
+      # with JavaScriptCore instead of needing a simulator.
       - path: Riff
-        excludes:
-          - "Resources/Scripts/**"
-      - path: Riff/Resources/Scripts
-        buildPhase: resources
     dependencies:
       - package: RiffKit
         product: RiffKit
