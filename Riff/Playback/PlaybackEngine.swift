@@ -11,20 +11,6 @@ enum EngineState: Equatable {
     case ended
 }
 
-/// A lock-screen or Control Center press that arrived through the page's media
-/// session rather than through `MPRemoteCommandCenter`.
-///
-/// WebKit owns MediaRemote for this app's origin whenever web media is playing,
-/// so for YouTube tracks this — not `MPRemoteCommandCenter` — is the path a
-/// button press actually takes. See `MediaSession.js`.
-enum RemoteCommand: Equatable {
-    case play
-    case pause
-    case next
-    case previous
-    case seek(TimeInterval)
-}
-
 /// Callbacks an engine reports upward. Modelled as closures rather than a
 /// delegate protocol so `PlaybackCoordinator` can wire both engines to the same
 /// handlers without a per-engine adapter.

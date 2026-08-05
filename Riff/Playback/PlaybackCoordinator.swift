@@ -58,28 +58,6 @@ final class PlaybackCoordinator {
         wire(youtube)
         wire(local)
         configureRemoteCommands()
-
-        // Lock-screen presses for YouTube tracks arrive here rather than through
-        // MPRemoteCommandCenter. WebKit owns MediaRemote for this app's origin
-        // while web media plays, and rebuilds the button set from the actions
-        // the *page* registered — so the presses come back through the page's
-        // media session and MediaSession.js forwards them.
-        youtube.onRemoteCommand = { [weak self] command in
-            self?.handle(remoteCommand: command)
-        }
-    }
-
-    private func handle(remoteCommand command: RemoteCommand) {
-        switch command {
-        case .next: next()
-        case .previous: previous()
-        // The page already acted locally before reporting, so these only bring
-        // `status` back in line; calling togglePlayPause would undo the press.
-        case .play: status = .playing
-        case .pause: status = .paused
-        case let .seek(time): position = time
-        }
-        updateNowPlayingInfo()
     }
 
     // MARK: - Starting playback

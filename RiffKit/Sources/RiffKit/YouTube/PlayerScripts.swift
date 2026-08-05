@@ -7,9 +7,6 @@ import Foundation
 /// RiffKit rather than the app bundle specifically so `RiffKitTests` can load
 /// them into a `JSContext` and check them on macOS in milliseconds.
 public enum PlayerScripts: String, CaseIterable, Sendable {
-    /// Owns `navigator.mediaSession` so the lock screen shows Riff's track and
-    /// its next button advances Riff's queue rather than YouTube's autoplay.
-    case mediaSession = "MediaSession"
     /// Deletes YouTube's ad inventory before its player parses it.
     case adStrip = "AdStrip"
     /// Keeps playback alive with the screen off.
@@ -23,13 +20,9 @@ public enum PlayerScripts: String, CaseIterable, Sendable {
 
     /// The scripts the player web view needs, in injection order.
     ///
-    /// Order matters twice. `MediaSession` goes first so it captures the pristine
-    /// `MediaSession.prototype` methods before anything can wrap them — the
-    /// failure mode otherwise is a silently dead next button. `AdStrip` patches
-    /// `window.fetch`, so anything after it sees the patched version.
-    public static let player: [PlayerScripts] = [
-        .mediaSession, .adStrip, .backgroundPlay, .playerSurface, .bridge,
-    ]
+    /// Order matters: `AdStrip` patches `window.fetch`, so anything injected
+    /// after it sees the patched version.
+    public static let player: [PlayerScripts] = [.adStrip, .backgroundPlay, .playerSurface, .bridge]
 
     public var source: String {
         get throws {
