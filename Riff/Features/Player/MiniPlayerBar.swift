@@ -47,6 +47,11 @@ struct MiniPlayerBar: View {
                     .frame(width: 44, height: 44)
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("miniPlayerToggle")
+                // The label is how BackgroundPlaybackTests reads whether audio
+                // survived being backgrounded, so it has to say which state the
+                // player is in rather than which action the button performs.
+                .accessibilityLabel(playback.status.isPlaying ? "Pause" : "Play")
             }
             .padding(.horizontal, 8)
             .frame(height: Theme.miniPlayerHeight)
