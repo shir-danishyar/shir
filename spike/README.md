@@ -36,6 +36,25 @@ lock-screen ▶▶ control.
 | 4 | **`loadVideoById` does NOT navigate** | Before: `href=...v=dQw4w9WgXcQ, videoId=dQw4w9WgXcQ`. After: **`href` unchanged**, `videoId=9bZkp7q19f0`. No `didFinish` navigation callback fired. |
 | 5 | Track change is fast and clean | `paused → unstarted → buffering → playing` in about 1 second |
 | 6 | `_lact` keepalive arms successfully | `js: _lact keepalive armed` |
+| 7 | **YouTube starts every video muted, and the app must unmute it** | Probe before: `muted:true, ytMuted:true`. After forcing: `muted:false, ytMuted:false`. |
+
+### Finding 7 is a real requirement, not a spike quirk
+
+WebKit permits unattended autoplay **only when the media is silent**, so YouTube
+mutes itself and waits for a tap on its own "TAP TO UNMUTE" overlay. A music app
+must never sit in that state, and nothing else is going to fix it — so the engine
+unmutes explicitly, both on player-ready and again after every track change,
+since a freshly loaded video can come back muted.
+
+`__spike.unmute()` covers both layers, because they can disagree: the player API
+(`unMute()` / `setVolume(100)`) and the raw element flags (`muted`, `volume`).
+
+Diagnosing this took adding `muted` / `volume` / `ytMuted` / `ytVolume` to the
+status probe. Keep that instrumentation in the production engine — "no sound" is
+otherwise indistinguishable from "not playing".
+
+The audio session was correct throughout and was never the problem:
+`category=Playback output=0.6 otherAudio=false route=Speaker`.
 
 **Finding 4 is the important one.** It was the spec's first open question. Because
 the swap happens inside a live document, the audio session is never torn down by

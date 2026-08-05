@@ -141,10 +141,13 @@ final class SpikeController: NSObject {
         append("── \(reason): switching to \(currentTrack.title) (\(currentTrack.id))")
         updateNowPlaying()
         run("__spike.load('\(currentTrack.id)')", label: "load")
-        // Give the player a moment, then record what actually happened. This
-        // is what we read after unlocking the phone.
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3))
+            // A freshly loaded video can come back muted, so re-assert it.
+            try? await Task.sleep(for: .seconds(1))
+            self?.unmute()
+            // Then record what actually happened. This is what we read after
+            // unlocking the phone.
+            try? await Task.sleep(for: .seconds(2))
             self?.probe(label: "3s after switch")
         }
     }
@@ -153,12 +156,52 @@ final class SpikeController: NSObject {
         run("__spike.play()", label: "play")
     }
 
+    /// Bypasses YouTube's own unmute overlay and forces the element flags
+    /// directly, then reports state. Splits "YouTube's UI isn't responding"
+    /// from "audio never reaches the output".
+    func unmute() {
+        append("── forcing unmute")
+        run("__spike.unmute()", label: "unmute")
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.probe(label: "after unmute")
+            self?.reportAudioSession()
+        }
+    }
+
+    /// The other half of the diagnosis: what iOS thinks is happening.
+    func reportAudioSession() {
+        let session = AVAudioSession.sharedInstance()
+        append("session: category=\(session.category.rawValue) "
+               + "output=\(session.outputVolume) "
+               + "otherAudio=\(session.isOtherAudioPlaying) "
+               + "route=\(session.currentRoute.outputs.map(\.portType.rawValue).joined(separator: ",") )")
+    }
+
     /// Launch with `-autoadvance` to make a simulator run answer the spec's open
     /// question — does `loadVideoById` swap the video in place, or does it
     /// navigate? A navigation would tear down the audio session and sink the
     /// whole design, so it is worth knowing without needing a human to tap.
     private var autoAdvanceRequested: Bool {
         ProcessInfo.processInfo.arguments.contains("-autoadvance")
+    }
+
+    /// Always unmute once the player is live.
+    ///
+    /// WebKit only permits unattended autoplay when the media is silent, so
+    /// YouTube starts every video muted and waits for someone to tap its own
+    /// "TAP TO UNMUTE" overlay. For a music app that is never the desired
+    /// state — the whole point is the audio. Shir must unmute explicitly;
+    /// nothing else is going to do it.
+    ///
+    /// On a real device WebKit may still require a user gesture before it will
+    /// produce sound. That is satisfied naturally by the tap that started
+    /// playback in the first place.
+    private func scheduleAutoUnmute() {
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(1))
+            self?.unmute()
+        }
     }
 
     private func scheduleAutoAdvanceIfRequested() {
@@ -243,6 +286,8 @@ extension SpikeController: WKScriptMessageHandler {
             case "ready":
                 guard !bridgeReady else { return }
                 bridgeReady = true
+                reportAudioSession()
+                scheduleAutoUnmute()
                 scheduleAutoAdvanceIfRequested()
             default:
                 append("js: unknown message \(payload)")
