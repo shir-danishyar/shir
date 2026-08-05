@@ -40,6 +40,13 @@ enum Theme {
     static let thumbCorner: CGFloat = 4
     static let rowHeight: CGFloat = 64
     static let miniPlayerHeight: CGFloat = 58
+
+    /// The video stage's shape, in one place because two views must agree on it
+    /// exactly. `NowPlayingView` shows the web view and `RootTabView` parks it
+    /// while that screen is closed — and if the two sizes differ, moving between
+    /// them resizes the web view, which changes `m.youtube.com`'s viewport and
+    /// makes its player re-lay-out mid-song for no reason.
+    static let playerAspectRatio: CGFloat = 16.0 / 9.0
     /// Left inset for row separators so they start under the text, not the art.
     static var separatorInset: CGFloat { thumbWidth + 22 }
 

@@ -77,17 +77,23 @@ struct RootTabView: View {
     /// The two mounts are mutually exclusive by construction — a `UIView` has
     /// one superview, so overlapping them would have the cover silently steal
     /// the web view and leave this one blank.
+    ///
+    /// It is kept at the *same size* Now Playing gives it, and simply covered by
+    /// the opaque `TabView` in front. Shrinking it instead — a hidden one-point
+    /// parking spot is the obvious idea — resizes the web view every time the
+    /// user opens or closes Now Playing, which changes `m.youtube.com`'s viewport
+    /// and makes its player re-lay-out in the middle of a song. Same size in both
+    /// places means moving between them costs nothing.
+    ///
+    /// It also must not be `hidden` or zero-alpha: WebKit reads both when it
+    /// decides whether a page is visible, so hiding it properly would put us back
+    /// where we started.
     @ViewBuilder
     private var playerKeepAlive: some View {
         if playback.isPlayingYouTube, !isShowingNowPlaying {
             YouTubePlayerView(webView: playback.youtubeEngine.webView)
-                // Deliberately one opaque point rather than a hidden or
-                // zero-alpha view: WebKit reads `isHidden` and alpha when it
-                // decides page visibility, so hiding it properly would put us
-                // back where we started. One black point over a near-black tab
-                // bar is imperceptible.
-                .frame(width: 1, height: 1)
-                .clipped()
+                .aspectRatio(Theme.playerAspectRatio, contentMode: .fit)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }

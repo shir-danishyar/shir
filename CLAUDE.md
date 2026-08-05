@@ -452,6 +452,8 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | Lock screen has play/pause but no next or previous | WebKit's default command set has neither, and `MPRemoteCommandCenter` cannot add them for web media | The *page* must register `nexttrack` — `MediaSession.js` |
 | Registering `nexttrack` still shows no track buttons | `seekforward`/`seekbackward` occupy the same two slots | Null them explicitly |
 | The lock screen shows an advertiser's name | YouTube sets its own `mediaSession.metadata` during a pre-roll | Lock `metadata` with `configurable: false` at document-start |
+| The lock screen shows a paused card over playing audio | `navigator.mediaSession.playbackState` went stale — `playing` fired before the listeners attached, and nothing re-asserted it | Re-derive it from `video.paused` on the heartbeat, not from events alone |
+| Backgrounding pauses playback **in the simulator** | WebKit adds `BackgroundTabPlaybackRestricted` below 1GB of RAM; the simulator reports ~0.9GB | Not a real bug. Test background playback on the device |
 | An SPI check passes but the setting does nothing | WebKit declares the accessors unconditionally and compiles the bodies out, so `responds(to:)` answers YES for a stub | Write a value and read it back |
 | First song of a session plays an ad | `ytInitialData` is server-rendered and never passes through `fetch`/`XHR` | Intercept with `Object.defineProperty` |
 | Playback stops roughly half an hour in | `window._lact` went stale | Refresh it every 5 min |
@@ -557,6 +559,15 @@ Record provenance in a comment whenever you adapt code from any of these.
   locked phone. **The simulator cannot answer that**, which is the most likely
   reason `53cdda6` was reverted 31 minutes after it was committed. Use the `log
   stream` predicate in §5 on the physical device, not a simulator screenshot.
+
+  Two things the simulator provably cannot answer, both confirmed by running
+  the identical probe on `399d868` and on this build: it renders no lock-screen
+  card, and it pauses backgrounded video because it reports ~0.9GB of RAM,
+  under WebKit's 1GB `BackgroundTabPlaybackRestricted` threshold
+  (`MediaElementSession::beginInterruption … type = EnteringBackground`). A
+  6GB iPhone is not restricted. What the simulator *did* prove is progress:
+  `updateNowPlayingInfo` went from **0 lines** before this work to publishing
+  continuously with `isPlaying = true, registered = true` after it.
 
 **Not built:**
 

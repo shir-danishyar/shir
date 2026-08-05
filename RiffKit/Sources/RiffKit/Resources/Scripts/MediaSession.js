@@ -182,6 +182,21 @@
     } catch (e) {}
   }
 
+  // Position and state together, both read from the element rather than assumed.
+  //
+  // Event listeners alone are not enough, and the failure is quiet: WebKit was
+  // observed publishing `isPlaying = false` for minutes while the song played,
+  // because 'playing' had fired once before the listeners were attached and
+  // nothing re-asserted it afterwards. A lock screen stuck showing a paused card
+  // over playing audio is indistinguishable from the feature being broken, so
+  // the state is re-derived on the same heartbeat that moves the scrubber.
+  function sync() {
+    var v = videoElement();
+    if (!v) return;
+    pushPlaybackState(v.paused ? 'paused' : 'playing');
+    pushPosition();
+  }
+
   // ---- handlers -------------------------------------------------------------
   //
   // next/previous deliberately do NOT act locally. Riff's queue lives in Swift,
@@ -233,24 +248,25 @@
   function wire(video) {
     if (!video || video.__riffMediaWired) return;
     video.__riffMediaWired = true;
-    video.addEventListener('playing', function () { pushPlaybackState('playing'); pushPosition(); });
-    video.addEventListener('pause', function () { pushPlaybackState('paused'); pushPosition(); });
-    video.addEventListener('loadedmetadata', pushPosition);
-    video.addEventListener('ratechange', pushPosition);
-    video.addEventListener('seeked', pushPosition);
+    // Every one of these ends in the same `sync()`, so a listener that fires
+    // before another has attached cannot leave the card describing a state the
+    // element is no longer in.
+    ['playing', 'play', 'pause', 'loadedmetadata', 'ratechange', 'seeked']
+      .forEach(function (event) { video.addEventListener(event, sync); });
+    sync();
   }
 
   // m.youtube.com is an SPA and replaces the media element. Poll on the same 1s
   // cadence Bridge.js already uses rather than adding a MutationObserver.
   setInterval(function () { wire(videoElement()); }, 1000);
-  setInterval(pushPosition, 5000);
+  setInterval(sync, 5000);
 
   // ---- the surface Swift drives ---------------------------------------------
 
   window.__riffMedia = {
     setMetadata: applyMetadata,
     setPlaybackState: function (state) { pushPlaybackState(state); return 'state ' + state; },
-    pushPosition: function () { pushPosition(); return 'position pushed'; },
+    pushPosition: function () { sync(); return "state and position pushed"; },
     // Idempotent. The lock means YouTube can never undo the install, but calling
     // again after a track change is free insurance.
     install: install,

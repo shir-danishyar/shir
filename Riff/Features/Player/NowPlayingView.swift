@@ -86,14 +86,14 @@ struct NowPlayingView: View {
     private var stage: some View {
         if playback.isPlayingYouTube {
             YouTubePlayerView(webView: playback.youtubeEngine.webView)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+                .aspectRatio(Theme.playerAspectRatio, contentMode: .fit)
                 .frame(maxWidth: .infinity)
                 .background(Color.black)
         } else {
             VideoThumbnail(
                 url: playback.currentTrack?.artworkURL,
                 width: UIScreen.main.bounds.width,
-                height: UIScreen.main.bounds.width * 9 / 16,
+                height: UIScreen.main.bounds.width / Theme.playerAspectRatio,
                 seed: abs(playback.currentTrack?.id.hashValue ?? 0)
             )
         }

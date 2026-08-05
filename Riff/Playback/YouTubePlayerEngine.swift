@@ -381,6 +381,11 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             guard let name = payload["state"] as? String else { return }
             #if DEBUG
             Self.log.notice("\(name, privacy: .public) \(self.nowPlayingDiagnostics(), privacy: .public)")
+            webView.evaluateJavaScript("window.__riffMedia && __riffMedia.probe()") { value, _ in
+                if let value = value as? String {
+                    Self.log.notice("page \(value, privacy: .public)")
+                }
+            }
             #endif
             onStateChange?(Self.engineState(named: name))
 
