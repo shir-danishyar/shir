@@ -81,31 +81,55 @@ final class ShirUITests: XCTestCase {
 
     // MARK: - Search
 
-    /// SwiftUI focuses a field asynchronously after the tap, so `typeText` that
-    /// lands before focus arrives is silently dropped. Rather than sleeping,
-    /// this gates on the clear button, which only renders once the text has
-    /// actually reached the binding, rather than waiting a fixed time.
     func testSearchFieldAcceptsTyping() {
         tapTab("Search")
         let field = app.textFields["searchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
-        field.tap()
-        _ = app.keyboards.element.waitForExistence(timeout: 5)
-        field.typeText("benyamin")
-
-        let clear = app.buttons["clearSearchButton"]
-        // Retry only if the field is genuinely still empty. Gating the retry on
-        // the clear button alone types a second time whenever the button merely
-        // rendered slowly, which produces "benyaminbenyamin".
-        if !clear.waitForExistence(timeout: 3), (field.value as? String) == "Search" {
-            field.tap()
-            field.typeText("benyamin")
-        }
-        XCTAssertTrue(clear.waitForExistence(timeout: 8), "typed text should reach the binding")
+        typeQuery("benyamin", into: field)
         XCTAssertEqual(field.value as? String, "benyamin")
 
+        let clear = app.buttons["clearSearchButton"]
         clear.tap()
         XCTAssertFalse(clear.waitForExistence(timeout: 2), "clearing should empty the query")
+    }
+
+    /// History is recorded on submit regardless of whether the search itself
+    /// succeeded, so this covers the whole loop without needing the network.
+    func testSubmittingASearchRecordsItInHistory() {
+        tapTab("Search")
+        let field = app.textFields["searchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        typeQuery("ahmad zahir", into: field)
+
+        // Return key, not app.buttons["Search"] — that matches the tab bar first.
+        field.typeText("\n")
+
+        app.buttons["clearSearchButton"].tap()
+        field.tap()
+
+        let entry = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "ahmad zahir")
+        ).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "the query should appear in history")
+    }
+
+    func testDeletingAHistoryEntryRemovesIt() {
+        tapTab("Search")
+        let field = app.textFields["searchField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        typeQuery("gym music", into: field)
+        field.typeText("\n")
+
+        app.buttons["clearSearchButton"].tap()
+        field.tap()
+
+        let entry = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "gym music")
+        ).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 10))
+
+        app.buttons["deleteHistory-gym music"].tap()
+        XCTAssertFalse(entry.waitForExistence(timeout: 3), "deleting should remove the entry")
     }
 
     // MARK: - Settings
@@ -134,6 +158,25 @@ final class ShirUITests: XCTestCase {
         } else {
             app.buttons[name].tap()
         }
+    }
+
+    /// SwiftUI focuses fields asynchronously, so text typed before focus lands
+    /// is silently dropped. Rather than sleeping, this gates on the clear
+    /// button, which only renders once the text reached the binding. The retry
+    /// checks the field is genuinely still empty — gating it on the button
+    /// alone types twice whenever the button merely rendered slowly, giving
+    /// "benyaminbenyamin".
+    private func typeQuery(_ text: String, into field: XCUIElement) {
+        field.tap()
+        _ = app.keyboards.element.waitForExistence(timeout: 5)
+        field.typeText(text)
+
+        let clear = app.buttons["clearSearchButton"]
+        if !clear.waitForExistence(timeout: 3), (field.value as? String) == "Search" {
+            field.tap()
+            field.typeText(text)
+        }
+        XCTAssertTrue(clear.waitForExistence(timeout: 8), "typed text should reach the binding")
     }
 
     private func openSettings() {
