@@ -34,13 +34,4 @@ public struct YouTubeVideo: Identifiable, Hashable, Sendable {
             duration: duration
         )
     }
-
-    /// The stable, unsigned thumbnail for a video id.
-    ///
-    /// Search responses carry thumbnail URLs with expiring `sqp`/`rs` signature
-    /// parameters. Those must never reach the library, because the library is
-    /// persisted and the signature outlives nothing. This form does not expire.
-    public static func thumbnailURL(forVideoID id: String) -> URL? {
-        URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
-    }
 }

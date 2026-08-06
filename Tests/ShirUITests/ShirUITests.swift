@@ -4,15 +4,7 @@ import XCTest
 /// simulator. Deliberately thin: the interesting logic is unit-tested in
 /// ShirKit, so these only cover the wiring that unit tests cannot see —
 /// navigation, persistence reaching the UI, and the states each screen shows.
-final class ShirUITests: XCTestCase {
-    private var app: XCUIApplication!
-
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = ["-uitesting"]
-        app.launch()
-    }
+final class ShirUITests: ShirUITestCase {
 
     // MARK: - Launch
 
@@ -21,32 +13,32 @@ final class ShirUITests: XCTestCase {
     }
 
     func testAllFourTabsAreReachable() {
-        tapTab("Playlists")
+        app.tapTab("Playlists")
         XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
 
-        tapTab("Search")
+        app.tapTab("Search")
         XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
 
-        tapTab("More")
+        app.tapTab("More")
         XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))
 
-        tapTab("My Favorites")
+        app.tapTab("My Favorites")
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 5))
     }
 
     // MARK: - Playlists
 
     func testCreatingPlaylistFromToolbar() {
-        tapTab("Playlists")
-        createPlaylist(named: "Late Night")
+        app.tapTab("Playlists")
+        app.createPlaylist(named: "Late Night")
 
         XCTAssertTrue(app.staticTexts["Late Night"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["0 Tracks"].exists)
     }
 
     func testOpeningPlaylistShowsItsEmptyState() {
-        tapTab("Playlists")
-        createPlaylist(named: "Gym")
+        app.tapTab("Playlists")
+        app.createPlaylist(named: "Gym")
 
         app.staticTexts["Gym"].firstMatch.tap()
 
@@ -56,7 +48,7 @@ final class ShirUITests: XCTestCase {
     /// The derived playlists are always present, even with an empty library,
     /// because they are sorts rather than stored rows.
     func testSmartPlaylistsAreAlwaysListed() {
-        tapTab("Playlists")
+        app.tapTab("Playlists")
         XCTAssertTrue(app.staticTexts["Recently Added"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Recently Played"].exists)
     }
@@ -65,14 +57,14 @@ final class ShirUITests: XCTestCase {
     /// gets a fresh temp store, which is what keeps every other test here
     /// independent of run order.
     func testEachLaunchStartsFromACleanLibrary() {
-        tapTab("Playlists")
-        createPlaylist(named: "Temporary")
+        app.tapTab("Playlists")
+        app.createPlaylist(named: "Temporary")
         XCTAssertTrue(app.staticTexts["Temporary"].waitForExistence(timeout: 5))
 
         app.terminate()
         app.launch()
 
-        tapTab("Playlists")
+        app.tapTab("Playlists")
         XCTAssertFalse(
             app.staticTexts["Temporary"].waitForExistence(timeout: 3),
             "a fresh launch should not inherit the previous run's library"
@@ -82,7 +74,7 @@ final class ShirUITests: XCTestCase {
     // MARK: - Search
 
     func testSearchFieldAcceptsTyping() {
-        tapTab("Search")
+        app.tapTab("Search")
         let field = app.textFields["searchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         typeQuery("benyamin", into: field)
@@ -96,7 +88,7 @@ final class ShirUITests: XCTestCase {
     /// History is recorded on submit regardless of whether the search itself
     /// succeeded, so this covers the whole loop without needing the network.
     func testSubmittingASearchRecordsItInHistory() {
-        tapTab("Search")
+        app.tapTab("Search")
         let field = app.textFields["searchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         typeQuery("ahmad zahir", into: field)
@@ -114,7 +106,7 @@ final class ShirUITests: XCTestCase {
     }
 
     func testDeletingAHistoryEntryRemovesIt() {
-        tapTab("Search")
+        app.tapTab("Search")
         let field = app.textFields["searchField"]
         XCTAssertTrue(field.waitForExistence(timeout: 5))
         typeQuery("gym music", into: field)
@@ -143,22 +135,13 @@ final class ShirUITests: XCTestCase {
     }
 
     func testMoreTabShowsLibraryCounts() {
-        tapTab("More")
+        app.tapTab("More")
         XCTAssertTrue(app.staticTexts["Songs"].waitForExistence(timeout: 5))
         XCTAssertTrue(app.staticTexts["Playlists"].exists)
         XCTAssertTrue(app.staticTexts["Imported Files"].exists)
     }
 
     // MARK: - Helpers
-
-    private func tapTab(_ name: String) {
-        let tab = app.tabBars.buttons[name]
-        if tab.waitForExistence(timeout: 5) {
-            tab.tap()
-        } else {
-            app.buttons[name].tap()
-        }
-    }
 
     /// SwiftUI focuses fields asynchronously, so text typed before focus lands
     /// is silently dropped. Rather than sleeping, this gates on the clear
@@ -180,21 +163,9 @@ final class ShirUITests: XCTestCase {
     }
 
     private func openSettings() {
-        tapTab("More")
+        app.tapTab("More")
         let settings = app.buttons["settingsRow"]
         XCTAssertTrue(settings.waitForExistence(timeout: 5))
         settings.tap()
-    }
-
-    /// Creates a playlist from the Playlists tab's + button.
-    private func createPlaylist(named name: String) {
-        app.buttons["newPlaylistButton"].tap()
-
-        let alert = app.alerts["New Playlist"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 5), "the name prompt should appear")
-        let field = alert.textFields.firstMatch
-        field.tap()
-        field.typeText(name)
-        alert.buttons["Create"].tap()
     }
 }

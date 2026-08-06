@@ -10,19 +10,12 @@ import Observation
 @Observable
 public final class LibraryStore {
     public private(set) var library: Library
-    /// Set when a save fails so the UI can surface it instead of silently losing edits.
-    public private(set) var lastError: String?
 
     private let persistence: LibraryPersisting
 
     public init(persistence: LibraryPersisting) {
         self.persistence = persistence
-        do {
-            library = try persistence.load()
-        } catch {
-            library = Library()
-            lastError = "Could not load your library: \(error.localizedDescription)"
-        }
+        library = (try? persistence.load()) ?? Library()
     }
 
     // MARK: - Reads
@@ -174,14 +167,10 @@ public final class LibraryStore {
         library.playlists.firstIndex { $0.id == id }
     }
 
+    /// Failures are silent by explicit choice. A `lastError` property lived
+    /// here "so the UI can surface it" — nothing ever read it, so it went;
+    /// git remembers the plumbing if save errors ever earn UI.
     private func persist() {
-        do {
-            try persistence.save(library)
-            lastError = nil
-        } catch {
-            lastError = "Could not save your library: \(error.localizedDescription)"
-        }
+        try? persistence.save(library)
     }
-
-    public func clearError() { lastError = nil }
 }

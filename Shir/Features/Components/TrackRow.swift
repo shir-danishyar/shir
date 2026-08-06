@@ -9,16 +9,6 @@ import SwiftUI
 struct TrackRow: View {
     let track: Track
     var isCurrent: Bool = false
-    var accessory: Accessory = .none
-    var onAccessory: (() -> Void)?
-
-    enum Accessory {
-        case none
-        /// Pink `+`, for adding to the library or a playlist.
-        case add
-        /// Chevron, for rows that push a new screen.
-        case disclosure
-    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -35,24 +25,6 @@ struct TrackRow: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            switch accessory {
-            case .none:
-                EmptyView()
-            case .add:
-                Button { onAccessory?() } label: {
-                    Image(systemName: "plus")
-                        .font(.system(size: 22))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 40, height: 44)
-                }
-                // Without .plain the button swallows the whole row's tap.
-                .buttonStyle(.plain)
-            case .disclosure:
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.secondaryText)
-            }
         }
         .padding(.horizontal, 14)
         .frame(height: Theme.rowHeight)
@@ -151,34 +123,5 @@ struct ShufflePlayButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// Tells the two sources apart, which matters because they behave differently:
-/// only imported files keep playing with the screen off.
-struct SourceBadge: View {
-    let source: MediaSource
-
-    var body: some View {
-        Text(label)
-            .font(.system(size: 10, weight: .semibold))
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 4))
-            .foregroundStyle(color)
-    }
-
-    private var label: String {
-        switch source {
-        case .youtube: return "YOUTUBE"
-        case .localFile: return "OFFLINE"
-        }
-    }
-
-    private var color: Color {
-        switch source {
-        case .youtube: return Theme.accent
-        case .localFile: return Color(red: 0.35, green: 0.8, blue: 0.55)
-        }
     }
 }

@@ -17,6 +17,15 @@ BUILD_DIR=".build/ios-typecheck"
 
 mkdir -p "$BUILD_DIR"
 
+# Raw swiftc does not run SwiftPM's resource codegen, so `Bundle.module` (used
+# by PlayerScripts to reach the .js resources) does not exist here. This shim
+# supplies a stand-in — never executed, only typechecked.
+SHIM="$BUILD_DIR/bundle_module_shim.swift"
+cat > "$SHIM" <<'SWIFT'
+import Foundation
+extension Bundle { static var module: Bundle { .main } }
+SWIFT
+
 echo "==> Building ShirKit for $TRIPLE"
 # shellcheck disable=SC2046
 swiftc \
@@ -25,6 +34,7 @@ swiftc \
   -module-name ShirKit \
   -emit-module \
   -emit-module-path "$BUILD_DIR/ShirKit.swiftmodule" \
+  "$SHIM" \
   $(find ShirKit/Sources/ShirKit -name '*.swift')
 
 echo "==> Typechecking the app"

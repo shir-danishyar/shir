@@ -6,25 +6,17 @@ import XCTest
 /// tapping through by hand, which matters a lot for a design that is being
 /// matched against reference screenshots. Images land in the test runner's
 /// Documents directory; `scripts/screenshots.sh` pulls them back out.
-final class ScreenshotTour: XCTestCase {
-    private var app: XCUIApplication!
-
-    override func setUpWithError() throws {
-        continueAfterFailure = false
-        app = XCUIApplication()
-        app.launchArguments = ["-uitesting"]
-        app.launch()
-    }
+final class ScreenshotTour: ShirUITestCase {
 
     func testCaptureEveryScreen() {
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 10))
         save("01-favorites-empty")
 
-        tapTab("Playlists")
+        app.tapTab("Playlists")
         XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
         save("02-playlists")
 
-        createPlaylist(named: "Late Night")
+        app.createPlaylist(named: "Late Night")
         XCTAssertTrue(app.staticTexts["Late Night"].waitForExistence(timeout: 5))
         save("03-playlists-with-one")
 
@@ -33,11 +25,11 @@ final class ScreenshotTour: XCTestCase {
         save("04-playlist-detail")
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
-        tapTab("Search")
+        app.tapTab("Search")
         XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
         save("05-search")
 
-        tapTab("More")
+        app.tapTab("More")
         XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))
         save("06-more")
 
@@ -53,21 +45,6 @@ final class ScreenshotTour: XCTestCase {
     }
 
     // MARK: - Helpers
-
-    private func tapTab(_ name: String) {
-        let tab = app.tabBars.buttons[name]
-        if tab.waitForExistence(timeout: 5) { tab.tap() } else { app.buttons[name].tap() }
-    }
-
-    private func createPlaylist(named name: String) {
-        app.buttons["newPlaylistButton"].tap()
-        let alert = app.alerts["New Playlist"]
-        XCTAssertTrue(alert.waitForExistence(timeout: 5))
-        let field = alert.textFields.firstMatch
-        field.tap()
-        field.typeText(name)
-        alert.buttons["Create"].tap()
-    }
 
     private func save(_ name: String) {
         let image = XCUIScreen.main.screenshot()

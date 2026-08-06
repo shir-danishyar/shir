@@ -99,11 +99,4 @@ enum LocalMediaImporter {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    /// Deletes the backing file for a local track. Safe to call for a track
-    /// whose file is already gone.
-    static func deleteFile(for track: Track) {
-        guard let fileName = track.localFileName else { return }
-        let url = MediaLibraryLocation.mediaDirectory.appendingPathComponent(fileName)
-        try? FileManager.default.removeItem(at: url)
-    }
 }
