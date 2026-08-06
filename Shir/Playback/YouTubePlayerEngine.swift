@@ -102,14 +102,12 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         }
 
         run(autoplay ? "__shir.load('\(escape(videoID))')" : "__shir.cue('\(escape(videoID))')")
-        scheduleUnmute()
     }
 
     func play() {
         resumePolicy.notePlay()
         activateAudioSession()
         run("__shir.play()")
-        scheduleUnmute()
     }
 
     func pause() {
@@ -214,17 +212,6 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
 
         Self.probeLog.log("output device disconnected")
         resumePolicy.noteOutputDeviceDisconnected()
-    }
-
-    /// YouTube starts every video muted — WebKit only permits unattended
-    /// autoplay when the media is silent — and then waits for a tap on its own
-    /// overlay. A music app must never sit there muted, and a freshly loaded
-    /// video can come back muted, so this is re-asserted after every load.
-    private func scheduleUnmute() {
-        Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(900))
-            self?.run("__shir.unmute()")
-        }
     }
 
     // MARK: - Web view
@@ -334,7 +321,6 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             } else {
                 run("__shir.pause()")
             }
-            scheduleUnmute()
             flushPendingCommands()
 
         case "state":

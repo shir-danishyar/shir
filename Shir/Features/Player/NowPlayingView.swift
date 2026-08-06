@@ -99,7 +99,8 @@ struct NowPlayingView: View {
     /// mounting the view suspends the media element" — turned out to be only
     /// half true. WebKit suspends *silent* elements in a hidden page, which is
     /// why a track cannot *start* unless this stage is mounted: it begins
-    /// muted, and the suspension beats the 900ms unmute. An *audibly playing*
+    /// muted, and a suspended element never reaches the "playing" state that
+    /// triggers the bridge's unmute. An *audibly playing*
     /// element is explicitly spared, which is why the mini-player posture
     /// keeps playing with no mount at all. Backgrounding is a different pause
     /// entirely — WebKit force-pauses video sessions when the app leaves the

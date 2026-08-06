@@ -52,6 +52,24 @@
     }
   }
 
+  // YouTube starts every video muted, because WebKit only permits unattended
+  // autoplay when the media is silent, and then waits for a tap on its own
+  // TAP TO UNMUTE overlay. Nothing else will unmute it, so the bridge does —
+  // on every transition to "playing", the one moment the video element
+  // certainly exists and the earliest an unmute can stick. A timer instead of
+  // this event means a silent intro: the 900ms version played the first
+  // second of every track muted, behind YouTube's banner.
+  function unmute() {
+    var p = player();
+    if (p && typeof p.unMute === 'function') { try { p.unMute(); } catch (e) {} }
+    if (p && typeof p.setVolume === 'function') { try { p.setVolume(100); } catch (e) {} }
+    var videos = document.querySelectorAll('video');
+    for (var i = 0; i < videos.length; i++) {
+      videos[i].muted = false;
+      videos[i].volume = 1;
+    }
+  }
+
   function emitProgress() {
     var v = videoElement();
     if (!v) return;
@@ -81,12 +99,20 @@
       p.addEventListener('onStateChange', function (code) {
         var state = STATES[String(code)] || 'idle';
         send({ kind: 'state', state: state, videoId: currentVideoId() });
-        if (state === 'playing') { startProgress(); emitProgress(); } else { stopProgress(); }
+        if (state === 'playing') { unmute(); startProgress(); emitProgress(); } else { stopProgress(); }
       });
       p.addEventListener('onError', function (code) {
         send({ kind: 'error', code: code });
       });
       wiredPlayer = p;
+      // The wire-up poll is 1s coarse, so autoplay can begin before the
+      // listener above is attached — and an already-playing player fires no
+      // further transition. Check, or that posture stays muted with no
+      // progress reports forever.
+      if (typeof p.getPlayerState === 'function' && p.getPlayerState() === 1) {
+        unmute();
+        startProgress();
+      }
       send({ kind: 'ready' });
       report('bridge wired to #movie_player');
     } catch (e) {
@@ -155,21 +181,6 @@
       var v = videoElement();
       if (v) { v.pause(); return 'video.pause'; }
       return 'no player';
-    },
-
-    // YouTube starts every video muted, because WebKit only permits unattended
-    // autoplay when the media is silent. Nothing else will unmute it, so the
-    // engine calls this on load and after every track change.
-    unmute: function () {
-      var p = player();
-      if (p && typeof p.unMute === 'function') { try { p.unMute(); } catch (e) {} }
-      if (p && typeof p.setVolume === 'function') { try { p.setVolume(100); } catch (e) {} }
-      var videos = document.querySelectorAll('video');
-      for (var i = 0; i < videos.length; i++) {
-        videos[i].muted = false;
-        videos[i].volume = 1;
-      }
-      return 'unmuted ' + videos.length;
     },
 
     status: function () {

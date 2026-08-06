@@ -31,7 +31,13 @@
     'ytm-banner-promo-renderer',
     '.mobile-topbar-header',
     '#dialog',
-    'ytm-button-renderer.icon-button'
+    'ytm-button-renderer.icon-button',
+    // The TAP TO UNMUTE pill. The video genuinely starts muted — WebKit's
+    // autoplay policy — and the bridge unmutes it the moment it plays, but
+    // YouTube's banner still flashes for the beat between the two. The user
+    // must never tap it (touches are disabled), so it is pure noise. DOM
+    // verified live on-device: BUTTON.ytp-unmute inside .ytp-mweb-player.
+    '.ytp-unmute'
   ];
 
   function install() {

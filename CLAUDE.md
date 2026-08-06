@@ -44,7 +44,7 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path ShirKit     # 94 unit tests, macOS, ~0.1s
+swift test --package-path ShirKit     # 97 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
 # 19 UI tests, ~5 min. BackgroundPlaybackTests and SearchAutoplayTests need the network. Use an explicit device id — several simulators share names.
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `ShirKit` with a unit test.** ShirKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 94 tests in about a tenth of a second. The app target holds only
+simulator — 97 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -227,9 +227,17 @@ changed in 24 months of upstream filter history.
    `XHR`, so the first page load is unblocked without it.
 8. **`get_watch` nests the payload** at `data[0].playerResponse`, and the
    endpoint regex must cover `browse|get_watch|next|player|search`.
-9. **Unmute explicitly, on load and after every track change.** WebKit permits
-   unattended autoplay only when the media is silent, so YouTube starts muted
-   and waits for a tap on its own overlay. Nothing else will unmute it.
+9. **The bridge unmutes on every transition to `playing`.** WebKit permits
+   unattended autoplay only when the media is silent, so YouTube starts each
+   video muted and waits for a tap on its own TAP TO UNMUTE overlay. Nothing
+   else will unmute it — and a timer instead of the event means a silent
+   intro: the 900ms version played the first second of every track muted,
+   behind the banner. `Bridge.js` also unmutes at wire-up if the player is
+   already playing, because an already-playing player fires no transition.
+   The banner itself (`.ytp-unmute`, DOM verified live) is hidden by
+   `PlayerSurface.js` — it flashes for the beat between playback starting
+   and the unmute landing, and a user who cannot touch the page must never
+   be told to tap it.
 10. **Background audio needs all four:** `UIBackgroundModes: audio`, an active
     `.playback` `AVAudioSession`, the visibility overrides, and the engine's
     auto-resume. The first three keep the *page* willing to play; the fourth
@@ -384,7 +392,7 @@ Each rule has a test:
 
 ## 8. Testing
 
-94 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
+97 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
 
 **Anything with real logic belongs in ShirKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
@@ -429,7 +437,7 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | Adding a field to `Library` empties everyone's library | Synthesized `Decodable` throws `keyNotFound`; `LibraryStore` reacts to a decode failure by starting empty | `Library.init(from:)` uses `decodeIfPresent` defaults — **keep it** |
 | App crashes on touching the web view | WKWebView and YouTube gesture recognizers form a conflicting edge in `UIGestureGraph` | `isUserInteractionEnabled = false`. It is a player, not a browser |
 | Every search crashes the app | A key provider using `MainActor.assumeIsolated`, called from a background context | Read the keychain directly, or keep the call off the main actor |
-| Video plays but there is no sound | WebKit only allows unattended autoplay when muted; YouTube complies and waits for a tap | Unmute explicitly on load and after each track change |
+| Video plays but there is no sound | WebKit only allows unattended autoplay when muted; YouTube complies and waits for a tap | `Bridge.js` unmutes on every `playing` transition, and at wire-up if already playing. Not a timer — 900ms of delay was 900ms of silent intro |
 | Ads replaced by a 4–16s spinner | SABR `backoffTimeMs` still covers the removed ad slot | Port `brave-yt-sabr-fix.js` |
 | First song of a session plays an ad | `ytInitialData` is server-rendered and never passes through `fetch`/`XHR` | Intercept with `Object.defineProperty` |
 | Playback stops roughly half an hour in | `window._lact` went stale | Refresh it every 5 min |

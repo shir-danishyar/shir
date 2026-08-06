@@ -20,7 +20,10 @@ final class PlayerScriptsTests: XCTestCase {
     ///
     /// The scripts guard on `typeof window !== 'undefined'` so they work under
     /// both WebKit and JSContext; the shim here supplies the parts they touch.
-    private func context(loading script: PlayerScripts) throws -> JSContext {
+    /// `shims` is extra setup evaluated after the base shims but before the
+    /// script, for tests that need to replace a global the script captures at
+    /// load — the bridge's `setInterval`, a fake player behind `querySelector`.
+    private func context(loading script: PlayerScripts, shims: String = "") throws -> JSContext {
         let context = try XCTUnwrap(JSContext())
         var thrown: String?
         context.exceptionHandler = { _, exception in
@@ -58,6 +61,7 @@ final class PlayerScriptsTests: XCTestCase {
             """
         )
 
+        if !shims.isEmpty { context.evaluateScript(shims) }
         context.evaluateScript(try script.source)
         if let thrown { XCTFail("\(script.rawValue).js threw: \(thrown)") }
         return context
@@ -203,6 +207,78 @@ final class PlayerScriptsTests: XCTestCase {
         let original = #"{"videoDetails":{"videoId":"clean"}}"#
         let stripped = try strip(original, in: context)
         XCTAssertEqual((stripped["videoDetails"] as? [String: Any])?["videoId"] as? String, "clean")
+    }
+
+    // MARK: - Bridge
+
+    /// A fake `#movie_player` for the bridge to wire itself to.
+    ///
+    /// `setInterval` is captured rather than run — the bridge polls for the
+    /// player with it, so tests invoke `__wireUp()` to run that poll on
+    /// demand. `__fireState(code)` plays the role of YouTube's `onStateChange`.
+    /// The video starts muted, exactly as WebKit's autoplay policy leaves it.
+    private static let bridgeShims = """
+        var __intervals = [];
+        window.setInterval = function (fn) { __intervals.push(fn); return __intervals.length; };
+        window.__wireUp = function () { __intervals[0](); };
+
+        var __stateListener = null;
+        window.__fakeVideo = { muted: true, volume: 0, currentTime: 0, duration: 300, paused: false };
+        window.__fakePlayer = {
+            state: -1,
+            addEventListener: function (name, fn) {
+                if (name === 'onStateChange') { __stateListener = fn; }
+            },
+            unMute: function () { __fakeVideo.muted = false; },
+            setVolume: function () {},
+            getVideoData: function () { return { video_id: 'abc123' }; },
+            getPlayerState: function () { return this.state; }
+        };
+        window.__fireState = function (code) { __stateListener(code); };
+
+        document.querySelector = function (selector) {
+            return selector === '#movie_player' ? __fakePlayer : __fakeVideo;
+        };
+        document.querySelectorAll = function (selector) {
+            return selector === 'video' ? [__fakeVideo] : [];
+        };
+        """
+
+    /// The moment the player reports "playing" is the moment to unmute: the
+    /// video element certainly exists, and every earlier attempt can be undone
+    /// by the player's own start-muted setup. A timer instead of this event
+    /// means a silent intro — the 900ms version played the first second of
+    /// every track muted, behind YouTube's TAP TO UNMUTE banner.
+    func testBridgeUnmutesTheMomentPlaybackStarts() throws {
+        let context = try context(loading: .bridge, shims: Self.bridgeShims)
+        context.evaluateScript("__wireUp();")
+
+        XCTAssertTrue(
+            context.evaluateScript("__fakeVideo.muted").toBool(),
+            "wiring up alone must not unmute — nothing is playing yet"
+        )
+
+        context.evaluateScript("__fireState(1);") // 1 = playing
+        XCTAssertFalse(context.evaluateScript("__fakeVideo.muted").toBool())
+    }
+
+    /// The wire-up poll is 1s coarse, so autoplay can begin before the state
+    /// listener is attached — and an already-playing player fires no further
+    /// transition. Without this check, that posture stays muted forever.
+    func testBridgeUnmutesAPlayerAlreadyPlayingWhenItWires() throws {
+        let context = try context(loading: .bridge, shims: Self.bridgeShims)
+        context.evaluateScript("__fakePlayer.state = 1; __wireUp();")
+
+        XCTAssertFalse(context.evaluateScript("__fakeVideo.muted").toBool())
+    }
+
+    /// A cued video is loaded but deliberately not started, so it must stay
+    /// as WebKit left it. Unmuting is a response to playback, not to loading.
+    func testBridgeLeavesACuedVideoMuted() throws {
+        let context = try context(loading: .bridge, shims: Self.bridgeShims)
+        context.evaluateScript("__wireUp(); __fireState(5);") // 5 = cued
+
+        XCTAssertTrue(context.evaluateScript("__fakeVideo.muted").toBool())
     }
 
     // MARK: - Helpers
