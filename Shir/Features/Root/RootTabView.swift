@@ -17,6 +17,24 @@ struct RootTabView: View {
         @Bindable var playback = playback
 
         ZStack(alignment: .bottom) {
+            // The engine's web view, kept in the window — full-size but
+            // invisible behind the opaque tab UI — whenever Now Playing is
+            // closed. This is not decoration; both properties were measured:
+            // playback cannot START outside a window (a never-parented web
+            // view runs no page media at all — zero bridge messages), and a
+            // 1pt host is no better, because m.youtube.com will not build a
+            // player into a 1px CSS viewport (navigation commits, bridge
+            // never comes up). Full-size-but-invisible is the shape that
+            // works, and it is why tapping a search result plays immediately
+            // instead of sitting cued until the cover is opened. Audio
+            // *continues* fine unparented once audible; starting is what
+            // needs this. NowPlayingView takes the view over while the cover
+            // is up, so exactly one parent owns it at a time.
+            // Full opacity on purpose: WebKit treats a near-transparent view
+            // as invisible and stops the page, so the hiding is done by
+            // occlusion — everything above this in the ZStack draws on opaque
+            // black.
+
             TabView(selection: $selection) {
                 FavoritesView()
                     .tabItem { Label("My Favorites", systemImage: "heart.fill") }
@@ -40,6 +58,12 @@ struct RootTabView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: playback.hasActiveTrack)
+        // Starting a song opens the player, exactly as the reference app
+        // does. It is also what makes playback start at all — see
+        // `userPlaybackToken` in PlaybackCoordinator.
+        .onChange(of: playback.userPlaybackToken) {
+            isShowingNowPlaying = true
+        }
         .fullScreenCover(isPresented: $isShowingNowPlaying) {
             NowPlayingView()
         }

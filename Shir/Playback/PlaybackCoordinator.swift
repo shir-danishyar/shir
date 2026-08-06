@@ -37,6 +37,16 @@ final class PlaybackCoordinator {
     /// fight the thumb for control of its position.
     var isScrubbing = false
 
+    /// Bumped whenever the *user* starts playback — tapping a song, shuffle,
+    /// picking a queue item. `RootTabView` observes it and presents Now
+    /// Playing, which is the reference app's behaviour and also a technical
+    /// necessity: WebKit refuses to *start* media in a web view that is not
+    /// genuinely visible (occluded, near-transparent, clipped and 1pt hosts
+    /// were all measured to fail), and the Now Playing stage is the app's one
+    /// visible mount. Queue auto-advance deliberately does not bump this —
+    /// a track ending must not fling the cover open if the user closed it.
+    private(set) var userPlaybackToken = 0
+
     let youtubeEngine: YouTubePlayerEngine
     private let localEngine: LocalAudioEngine
 
@@ -65,6 +75,7 @@ final class PlaybackCoordinator {
     func play(_ tracks: [Track], startingAt index: Int) {
         guard !tracks.isEmpty else { return }
         queue.load(tracks, startingAt: index)
+        userPlaybackToken += 1
         startCurrentTrack(autoplay: true)
     }
 
@@ -77,6 +88,7 @@ final class PlaybackCoordinator {
         guard !tracks.isEmpty else { return }
         if !queue.isShuffled { queue.toggleShuffle() }
         queue.load(tracks, startingAt: Int.random(in: 0..<tracks.count))
+        userPlaybackToken += 1
         startCurrentTrack(autoplay: true)
     }
 
@@ -133,7 +145,10 @@ final class PlaybackCoordinator {
     func playLast(_ track: Track) {
         let wasEmpty = queue.isEmpty
         queue.playLast(track)
-        if wasEmpty { startCurrentTrack(autoplay: true) }
+        if wasEmpty {
+            userPlaybackToken += 1
+            startCurrentTrack(autoplay: true)
+        }
     }
 
     func removeFromQueue(at index: Int) {

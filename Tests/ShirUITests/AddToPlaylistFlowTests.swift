@@ -13,12 +13,9 @@ final class AddToPlaylistFlowTests: ShirUITestCase {
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 10),
                       "favorites should start empty even with a seeded catalogue")
 
-        app.tapTab("Playlists")
-        app.staticTexts["Recently Added"].firstMatch.tap()
-
-        let song = app.staticTexts["Seeded Song A"]
-        XCTAssertTrue(song.waitForExistence(timeout: 5))
-        song.tap()
+        // Playing opens Now Playing on its own; close it to reach the tabs.
+        app.openNowPlayingForSeededSong()
+        app.buttons["dismissNowPlaying"].tap()
 
         app.tapTab("My Favorites")
         XCTAssertTrue(app.staticTexts["No songs yet"].waitForExistence(timeout: 5),

@@ -41,10 +41,9 @@ extension XCUIApplication {
         alert.buttons["Create"].tap()
     }
 
-    /// Plays "Seeded Song A" from Recently Added and opens Now Playing via the
-    /// mini bar — the route the seeded-library flow tests share. The mini bar
-    /// is reached by coordinate because its title area has no identifier and
-    /// the row that was just tapped matches the same title text.
+    /// Plays "Seeded Song A" from Recently Added — the route the
+    /// seeded-library flow tests share. Tapping the song presents Now Playing
+    /// by itself; the assertion at the end is that behaviour's guard.
     func openNowPlayingForSeededSong() {
         tapTab("Playlists")
         staticTexts["Recently Added"].firstMatch.tap()
@@ -53,11 +52,7 @@ extension XCUIApplication {
         XCTAssertTrue(song.waitForExistence(timeout: 5))
         song.tap()
 
-        let mini = buttons["miniPlayerToggle"]
-        XCTAssertTrue(mini.waitForExistence(timeout: 5))
-        coordinate(withNormalizedOffset: .zero)
-            .withOffset(CGVector(dx: 120, dy: mini.frame.midY))
-            .tap()
-        XCTAssertTrue(buttons["dismissNowPlaying"].waitForExistence(timeout: 5))
+        XCTAssertTrue(buttons["dismissNowPlaying"].waitForExistence(timeout: 5),
+                      "starting a song should open Now Playing on its own")
     }
 }

@@ -96,6 +96,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
             hasLoadedDocument = true
             wantsAutoplayOnReady = autoplay
             appInitiatedNavigation = true
+            Self.probeLog.log("first load: navigating, inWindow \(self.webView.window != nil, privacy: .public)")
             webView.load(URLRequest(url: Self.watchURL(for: videoID)))
             return
         }
@@ -321,10 +322,18 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
         switch kind {
         case "ready":
             guard !isBridgeReady else { return }
+            Self.probeLog.log("bridge ready")
             isBridgeReady = true
-            // The document was navigated for the first track; the page
-            // autoplays it, so only an explicit pause needs sending.
-            if !wantsAutoplayOnReady { run("__shir.pause()") }
+            // The document was navigated for the first track. Do not trust
+            // the page to autoplay it: it does when the web view is the
+            // visible stage, and it does not when the view sits occluded
+            // behind the tab UI — measured as "bridge ready, then silence".
+            // Commanding play() works in both postures.
+            if wantsAutoplayOnReady {
+                play()
+            } else {
+                run("__shir.pause()")
+            }
             scheduleUnmute()
             flushPendingCommands()
 
@@ -432,6 +441,7 @@ extension YouTubePlayerEngine: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         MainActor.assumeIsolated {
+            Self.probeLog.log("navigation committed, inWindow \(self.webView.window != nil, privacy: .public)")
             appInitiatedNavigation = false
         }
     }
