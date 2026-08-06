@@ -44,10 +44,10 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path ShirKit     # 74 unit tests, macOS, ~0.1s
+swift test --package-path ShirKit     # 90 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
-# 14 UI tests, ~2.5 min. Use an explicit device id — several simulators share names.
+# 16 UI tests, ~4.5 min. BackgroundPlaybackTests needs the network. Use an explicit device id — several simulators share names.
 xcodebuild -project Shir.xcodeproj -scheme Shir \
   -destination 'platform=iOS Simulator,id=<UDID>' test
 
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `ShirKit` with a unit test.** ShirKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 74 tests in about a tenth of a second. The app target holds only
+simulator — 90 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -112,6 +112,7 @@ in the project (§8).
 | `Library/LibraryPersistence.swift` | Whole-library JSON behind a protocol, plus an in-memory double |
 | `Search/SearchHistory.swift` | Recent queries. **Its own file, never a field on `Library` (§9)** |
 | `Playback/PlaybackQueue.swift` | Pure value type. Cursor, shuffle, repeat. No engine knowledge |
+| `Playback/AutoResumePolicy.swift` | Pure value type. Decides which player pauses get answered with `play()` — WebKit's backgrounding pause yes; the user's, iOS's and a dead player's no (§9) |
 | **ShirKit — YouTube** | |
 | `YouTube/PlayerScripts.swift` | Loads the `.js` from the package bundle. One place that knows where they live |
 | `YouTube/SuggestionClient.swift` | Autocomplete, over `HTTPFetching`. Native, not in a web view |
@@ -228,9 +229,12 @@ changed in 24 months of upstream filter history.
 9. **Unmute explicitly, on load and after every track change.** WebKit permits
    unattended autoplay only when the media is silent, so YouTube starts muted
    and waits for a tap on its own overlay. Nothing else will unmute it.
-10. **Background audio needs all three:** `UIBackgroundModes: audio`, an active
-    `.playback` `AVAudioSession`, and the visibility overrides. Any one missing
-    and playback stops at lock.
+10. **Background audio needs all four:** `UIBackgroundModes: audio`, an active
+    `.playback` `AVAudioSession`, the visibility overrides, and the engine's
+    auto-resume. The first three keep the *page* willing to play; the fourth
+    answers WebKit itself, which force-pauses video sessions on backgrounding
+    regardless of everything the page believes (pitfalls index has the
+    mechanism). Any one missing and playback stops at home press or lock.
 
 ### Why adblock-rust is not a dependency
 
@@ -349,11 +353,14 @@ Each rule has a test:
 
 ## 8. Testing
 
-74 unit tests (macOS, ~0.1s) and 14 UI tests (simulator, ~2.5 min).
+90 unit tests (macOS, ~0.1s) and 16 UI tests (simulator, ~4.5 min; BackgroundPlaybackTests needs the network).
 
 **Anything with real logic belongs in ShirKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
-reaching the screen, and each screen's empty and error states.
+reaching the screen, each screen's empty and error states, on-device geometry
+(`NowPlayingStageTests`), and audio surviving backgrounding
+(`BackgroundPlaybackTests`). Shared scaffolding — the `ShirUITestCase` base
+class and the `XCUIApplication` helpers — lives in `XCUITestHelpers.swift`.
 
 **The injected JavaScript is unit-tested via `JSContext`** —
 `PlayerScriptsTests` loads a script into a JS context and runs it against
@@ -368,6 +375,12 @@ missing.
 directory and is guarded by `testEachLaunchStartsFromACleanLibrary`.
 `-seedLibrary` adds known tracks to the catalogue *but not to Favorites*, so the
 flow tests can exercise play-versus-favourite offline.
+
+**Bootstrap seams:** `-autoplayVideoID <id>` starts playback with no UI driving
+it, and `-autoOpenNowPlaying YES` opens the cover so the stage is mounted —
+together they are how `BackgroundPlaybackTests` reaches a playing state
+deterministically, and how a bare `simctl launch` reproduces playback issues
+without XCUITest at all (§9 explains why search-driven repros stall).
 
 Prefer offline tests. The two committed history tests avoid the network
 entirely, because history is recorded on submit whether or not the search
@@ -389,11 +402,19 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | Ads replaced by a 4–16s spinner | SABR `backoffTimeMs` still covers the removed ad slot | Port `brave-yt-sabr-fix.js` |
 | First song of a session plays an ad | `ytInitialData` is server-rendered and never passes through `fetch`/`XHR` | Intercept with `Object.defineProperty` |
 | Playback stops roughly half an hour in | `window._lact` went stale | Refresh it every 5 min |
+| The video is correctly 16:9 but barely half the screen wide | `.aspectRatio(_:contentMode: .fit)` inside a `VStack`. A stack proposes each child a *share* of the leftover height, and `.fit` inscribes the ratio in whatever it is offered — so a short proposal shrinks the **width**. Measured: 120pt offered → 213pt wide, 54% | Give the stage a definite width, then derive the height (`NowPlayingView.stage(width:)`). `.layoutPriority` measurably does nothing — Spacers already go last, so there is no height left to win. `.frame(maxWidth: .infinity)` after it widens the frame, not the child |
+| A black band across the top of the video, same amount lost off the bottom | `.player-container` is `top: 48px` to clear the mobile header — which `PlayerSurface.js` hides, so nothing reclaims the space | `top: 0 !important`. Hiding an element does not collapse an offset reserved for it |
+| Music blasts out of the phone speaker when AirPods disconnect | The auto-resume answered a pause it should have respected. "The app did not ask for this pause" is not enough to justify resuming — iOS pauses for calls, Siri, other apps and unplugged headphones, and every one of those means it | `AutoResumePolicy` is told *who* paused: `AVAudioSession` interruption and route-change observers in `YouTubePlayerEngine`. Only WebKit's backgrounding pause gets answered |
+| YouTube never plays again until the app is killed | One failed or redirected first navigation. `hasLoadedDocument` latched before the load was known to succeed, so every later track ran `loadVideoById` against a document that never existed and queued behind a bridge that could never be ready | `resetForRetry()` on `didFailProvisionalNavigation`, and clear `appInitiatedNavigation` on **commit** rather than first use, so a consent/region redirect is not cancelled |
+| Tapping the scrubber restarts the song | `onEditingChanged(true)` flips the binding's `get` to `scrubPosition` before the slider ever calls `set`, and a touch that never drags never calls it — so release seeks to a stale value, 0 on first use | Seed `scrubPosition` from the live position when editing begins |
+| Audio stops the instant the app is backgrounded | WebKit force-pauses every video session on backgrounding (`BackgroundProcessPlaybackRestricted`). It is C++ app state: no injected visibility override reaches it, and it fires whether or not the web view is mounted. `UIBackgroundModes: audio` does **not** exempt a `<video>` | Answer the unasked-for pause with an immediate `play()` — WebKit accepts it because the audio session is active. The when-to-answer judgement is `AutoResumePolicy` (ShirKit, unit-tested); `YouTubePlayerEngine` wires it to WebKit and to the `AVAudioSession` observers that keep it from also answering iOS. Guarded by `BackgroundPlaybackTests` |
+| A track never starts, spinner forever — but only when driven by automation | Playback can only *start* with Now Playing open. The video begins muted, and WebKit suspends silent elements in a hidden page before the 900ms unmute; the cover is the web view's only mount. Manual use always opens the cover, so only automation ever hits this | Launch with `-autoplayVideoID <id> -autoOpenNowPlaying YES` — the seams exist for exactly this. Do **not** conclude "the Simulator can't play YouTube"; it can |
 | `.js` files missing at runtime | `.js` has no default build phase in Xcode | They live in ShirKit as SwiftPM resources — do not move them to the app target |
 | UI test cannot find an icon-only control | No accessibility identifier; SF Symbol names are undocumented and have changed between releases | Add `.accessibilityIdentifier` |
 | `typeText` silently dropped | SwiftUI focuses fields asynchronously | Gate on a UI change that only happens once text reached the binding. **Never sleep** |
 | Retry types text twice ("benyaminbenyamin") | Retry gated on a slow-rendering button rather than on the field | Check the field is genuinely still empty |
 | A UI test matching `"Search"` taps the wrong thing | The tab bar and the keyboard return key share that label | `field.typeText("\n")` |
+| Tapping a search result opens Add To Playlist instead of playing | The row is a tap gesture, not a Button, so `resultRow-<id>` propagates down to the trailing `+` — and `app.buttons[…]` therefore resolves to the `+` | Aim at a `staticText` inside the row (the artist line), not at the row identifier |
 | A section-header assertion never matches | iOS uppercases grouped-list headers | Assert on the nav bar or a row, not the header |
 | `await` inside `XCTAssert…` will not compile | Assertions take autoclosures | Split into two statements |
 | `move(fromOffsets:toOffset:)` is ambiguous | SwiftUI defines its own | ShirKit's is `moveElements` |
@@ -497,14 +518,11 @@ Record provenance in a comment whenever you adapt code from any of these.
   install rather than curated content.
 - **"Recently Played" mirrors "Recently Added".** There is no play-history
   store; it is honestly a duplicate rather than fake data.
-- **Three Now Playing action buttons are inert** — EQ, AirPlay and share are
-  laid out but not wired.
+- **Four Now Playing action buttons are inert** — plus, EQ, AirPlay and share
+  are laid out but not wired.
 - **No search pagination.** One page of results, roughly 20 items.
 
-**Stale:**
-
-- `docs/shir-architecture.html` documents the **pre-fork** architecture — IFrame
-  embed, player always visible, YouTube pausing in background. Regenerate it or
-  delete it; do not trust it.
-- `spike/` is the Phase 0 background-playback spike. It answered its question
-  and is safe to delete; nothing in Shir imports from it.
+Two stale artefacts this section used to track are gone: `spike/` (the Phase 0
+background-playback spike — answered its question) and
+`docs/shir-architecture.html` (documented the pre-fork architecture). Both
+deleted 2026-08-05; git remembers them.
