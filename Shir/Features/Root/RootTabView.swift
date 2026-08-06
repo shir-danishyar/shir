@@ -55,7 +55,16 @@ struct RootTabView: View {
             Text(playback.errorMessage ?? "")
         }
         .tint(Theme.accent)
-        .onAppear(perform: applyBarAppearance)
+        .onAppear {
+            applyBarAppearance()
+            // Test seam: a track cannot *start* unless the stage is mounted
+            // (WebKit suspends silent elements in a hidden page, and every
+            // track starts muted), and the cover is the only mount point —
+            // so BackgroundPlaybackTests needs it open without a tap.
+            if UserDefaults.standard.bool(forKey: "autoOpenNowPlaying") {
+                isShowingNowPlaying = true
+            }
+        }
     }
 
     /// SwiftUI's `TabView` and `NavigationStack` still defer to UIKit's

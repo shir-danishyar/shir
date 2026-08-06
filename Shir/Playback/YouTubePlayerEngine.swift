@@ -1,4 +1,5 @@
 import AVFoundation
+import os
 import ShirKit
 import WebKit
 
@@ -50,7 +51,35 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     /// policy. Anything arriving without it came from the page itself.
     private var appInitiatedNavigation = false
 
+    /// Answers pauses the app never asked for — most importantly WebKit's own:
+    /// it force-pauses every video session when the app backgrounds
+    /// (`BackgroundProcessPlaybackRestricted` — C++ app state, so no injected
+    /// visibility override can reach it, and it fires whether or not the web
+    /// view is mounted). The counter is to immediately play again.
+    ///
+    /// This is also what Brave's iOS browser ships (brave-core
+    /// `ios/browser/web/media/resources/media_backgrounding.ts`): they track
+    /// intent with a `userHitPause` flag where this tracks `wantsPlayback`,
+    /// and replay in-page where this replays over the bridge. WebKit offers no
+    /// API that lifts the restriction — the only exempt paths are PiP, AirPlay
+    /// and CarPlay — so a sub-second dip at backgrounding is inherent to every
+    /// implementation of this, theirs included.
+    ///
+    /// The when-to-answer judgement is `AutoResumePolicy` in ShirKit, where it
+    /// is unit-tested; this file only wires it to WebKit.
+    private var resumePolicy = AutoResumePolicy()
+
     private static let messageHandlerName = "shir"
+
+    override init() {
+        super.init()
+        observeAudioSession()
+    }
+
+    /// Field diagnostics, deliberately sparse — only rare events, never the
+    /// 500ms progress stream. Works on a sideloaded device too:
+    /// `log stream --predicate 'subsystem == "shir.probe"'`.
+    private static let probeLog = Logger(subsystem: "shir.probe", category: "engine")
 
     // MARK: - PlaybackEngine
 
@@ -61,6 +90,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         }
         onStateChange?(.buffering)
         activateAudioSession()
+        resumePolicy.noteLoad(autoplay: autoplay)
 
         guard hasLoadedDocument else {
             hasLoadedDocument = true
@@ -75,12 +105,14 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     }
 
     func play() {
+        resumePolicy.notePlay()
         activateAudioSession()
         run("__shir.play()")
         scheduleUnmute()
     }
 
     func pause() {
+        resumePolicy.notePause()
         run("__shir.pause()")
     }
 
@@ -89,6 +121,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     }
 
     func stop() {
+        resumePolicy.notePlaybackEnded()
         run("__shir.stop()")
         onStateChange?(.idle)
     }
@@ -102,10 +135,11 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     /// Activated lazily rather than at launch, so the app doesn't interrupt
     /// whatever else is playing until a song actually starts.
     ///
-    /// This is what lets WebKit media keep running with the screen off, in
-    /// combination with `UIBackgroundModes: audio` and the visibility overrides
-    /// in `BackgroundPlay.js`. All three are required; any one missing and
-    /// playback stops at lock.
+    /// One of the four legs background audio stands on, with
+    /// `UIBackgroundModes: audio`, the visibility overrides in
+    /// `BackgroundPlay.js`, and the auto-resume below — CLAUDE.md §5 rule 10
+    /// keeps the list. Any one missing and playback stops at home press or
+    /// lock.
     private func activateAudioSession() {
         do {
             let session = AVAudioSession.sharedInstance()
@@ -114,6 +148,71 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         } catch {
             onError?("Could not start audio: \(error.localizedDescription)")
         }
+    }
+
+    /// Tells `resumePolicy` who paused, so it can answer WebKit without also
+    /// answering iOS.
+    ///
+    /// Delivery is on `.main` and handled synchronously rather than hopped
+    /// through a `Task`, because ordering is the whole point: the interruption
+    /// or route change has to be recorded *before* the page's own `paused`
+    /// message arrives, or the resume fires against a session iOS just took
+    /// away. `assumeIsolated` is safe here for the same reason it is on the
+    /// script-message path — the notification is already on the main queue.
+    private func observeAudioSession() {
+        let center = NotificationCenter.default
+        let session = AVAudioSession.sharedInstance()
+
+        center.addObserver(
+            forName: AVAudioSession.interruptionNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.handleInterruption(note) }
+        }
+
+        center.addObserver(
+            forName: AVAudioSession.routeChangeNotification,
+            object: session,
+            queue: .main
+        ) { [weak self] note in
+            MainActor.assumeIsolated { self?.handleRouteChange(note) }
+        }
+    }
+
+    private func handleInterruption(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: raw)
+        else { return }
+
+        switch type {
+        case .began:
+            Self.probeLog.log("audio interruption began")
+            resumePolicy.noteInterruptionBegan()
+        case .ended:
+            let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let options = AVAudioSession.InterruptionOptions(rawValue: rawOptions)
+            let resuming = resumePolicy.noteInterruptionEnded(
+                shouldResume: options.contains(.shouldResume)
+            )
+            Self.probeLog.log("audio interruption ended, resuming \(resuming, privacy: .public)")
+            if resuming { play() }
+        @unknown default:
+            break
+        }
+    }
+
+    /// Headphones out, or a Bluetooth device gone. iOS pauses and means it —
+    /// answering that pause would play the song aloud in whatever room the
+    /// user is standing in.
+    private func handleRouteChange(_ note: Notification) {
+        guard let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt,
+              let reason = AVAudioSession.RouteChangeReason(rawValue: raw),
+              reason == .oldDeviceUnavailable
+        else { return }
+
+        Self.probeLog.log("output device disconnected")
+        resumePolicy.noteOutputDeviceDisconnected()
     }
 
     /// YouTube starts every video muted — WebKit only permits unattended
@@ -231,7 +330,25 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
 
         case "state":
             guard let name = payload["state"] as? String else { return }
+            if name == "playing" { resumePolicy.notePlaying() }
+            // The track finished. If the queue has more, the coordinator
+            // starts the next one and `load` re-arms; if it does not, nothing
+            // should be resumed — a page that autonavigates to a
+            // recommendation must not resurrect playback minutes later.
+            if name == "ended" { resumePolicy.notePlaybackEnded() }
+            // A pause nobody asked for is an interruption — most importantly
+            // WebKit's own EnteringBackground pause of video sessions, which
+            // arrives while this process is still awake. Answering it with an
+            // immediate play() is what keeps audio running past a home press;
+            // the resumed audio then keeps the app alive in the background.
+            // The pause is forwarded either way: if the resume fails, the UI
+            // must not claim to be playing; if it succeeds, the following
+            // "playing" corrects the state a beat later.
             onStateChange?(Self.engineState(named: name))
+            if name == "paused", resumePolicy.shouldResumeAfterUnrequestedPause() {
+                Self.probeLog.log("auto-resume")
+                play()
+            }
 
         case "progress":
             let position = payload["position"] as? Double ?? 0
@@ -240,6 +357,12 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
 
         case "error":
             let code = payload["code"] as? Int ?? -1
+            Self.probeLog.log("player error \(code, privacy: .public)")
+            // Stop wanting audio before reporting: a halted player still emits
+            // a paused state, and answering that would have the engine
+            // reactivating the audio session — stealing it from whatever the
+            // user switched to — while Shir's own UI says nothing is playing.
+            resumePolicy.notePlaybackEnded()
             onStateChange?(.idle)
             onError?(Self.message(forErrorCode: code))
 
@@ -285,6 +408,14 @@ extension YouTubePlayerEngine: WKNavigationDelegate {
     /// of those tears down the document and the audio session with it, which is
     /// the one thing this design cannot survive. Track changes are unaffected,
     /// because `loadVideoById` swaps in place without navigating.
+    ///
+    /// The flag is cleared on *commit*, not on first use. A server redirect —
+    /// a consent gate, a region bounce — arrives here as a second decision for
+    /// the same load, and consuming the flag on the first one cancelled it,
+    /// leaving the engine with `hasLoadedDocument` set and no document: every
+    /// later track then ran `loadVideoById` against nothing and buffered
+    /// forever behind a bridge that could never become ready. Once the
+    /// document commits, the page's own navigations are blocked as before.
     nonisolated func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
@@ -295,23 +426,37 @@ extension YouTubePlayerEngine: WKNavigationDelegate {
                 decisionHandler(.allow)   // subframes are the player's own business
                 return
             }
-            if appInitiatedNavigation {
-                appInitiatedNavigation = false
-                decisionHandler(.allow)
-            } else {
-                decisionHandler(.cancel)
-            }
+            decisionHandler(appInitiatedNavigation ? .allow : .cancel)
         }
     }
 
+    nonisolated func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        MainActor.assumeIsolated {
+            appInitiatedNavigation = false
+        }
+    }
+
+    /// A first load that never arrived must not leave the engine believing it
+    /// has a document, or YouTube stays broken until the app is killed.
     nonisolated func webView(
         _ webView: WKWebView,
         didFailProvisionalNavigation navigation: WKNavigation!,
         withError error: Error
     ) {
         Task { @MainActor in
+            self.resetForRetry()
             self.onStateChange?(.idle)
             self.onError?("Couldn't reach YouTube: \(error.localizedDescription)")
         }
+    }
+
+    /// Returns the engine to its pre-load state so the next `load` navigates
+    /// afresh instead of talking to a document that does not exist.
+    private func resetForRetry() {
+        hasLoadedDocument = false
+        appInitiatedNavigation = false
+        isBridgeReady = false
+        pendingCommands.removeAll()
+        resumePolicy.notePlaybackEnded()
     }
 }

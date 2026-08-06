@@ -14,16 +14,16 @@ enum PlaybackStatus: Equatable {
 
 /// Owns the queue and routes it to whichever engine can play the current track.
 ///
-/// Both engines now behave the same from here: lock screen controls, and audio
-/// that continues with the screen off. They get there very differently —
-/// `LocalAudioEngine` through AVFoundation, `YouTubePlayerEngine` through an
-/// active `.playback` session plus visibility overrides injected into the page —
-/// but the coordinator does not need to care, which is the point of the
-/// `PlaybackEngine` protocol.
+/// Both engines keep playing with the screen off, by very different routes —
+/// `LocalAudioEngine` through AVFoundation, `YouTubePlayerEngine` through the
+/// four-part machinery in CLAUDE.md §5 rule 10 — but the coordinator does not
+/// need to care, which is the point of the `PlaybackEngine` protocol. Lock
+/// screen *controls* are asymmetric: local files get them via MPRemoteCommand
+/// normally; for YouTube tracks they are a known gap (CLAUDE.md §12).
 ///
-/// Until 2026-08-04 the two were deliberately asymmetric and YouTube paused on
-/// backgrounding. That was an App Store constraint, and it left with the App
-/// Store; see CLAUDE.md §2.
+/// Until 2026-08-04 the engines were deliberately asymmetric and YouTube
+/// paused on backgrounding. That was an App Store constraint, and it left
+/// with the App Store; see CLAUDE.md §4.
 @MainActor
 @Observable
 final class PlaybackCoordinator {

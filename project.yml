@@ -30,10 +30,9 @@ targets:
         CFBundleVersion: "1"
         UILaunchScreen:
           UIColorName: LaunchBackground
-        # Required by both engines. AVPlayer needs it for imported files, and
-        # WebKit media needs it plus an active .playback session plus the
-        # visibility overrides in BackgroundPlay.js — all three, or playback
-        # stops the moment the screen locks.
+        # Required by both engines: AVPlayer for imported files, WebKit media
+        # for YouTube. One of the four background-audio requirements — the
+        # list lives in CLAUDE.md §5 rule 10, not here.
         UIBackgroundModes:
           - audio
         UISupportedInterfaceOrientations:

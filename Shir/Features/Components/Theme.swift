@@ -34,7 +34,14 @@ enum Theme {
     // MARK: - Metrics
 
     static let cornerRadius: CGFloat = 12
-    /// Thumbnails are 16:9, matching the video they represent.
+    /// The shape of a video, and so of everything that stands in for one.
+    ///
+    /// One constant rather than a literal at each use site: this ratio was
+    /// previously written as `16.0 / 9.0` in one place and `* 9 / 16` twelve
+    /// lines away, which is the same fact stated twice in two directions.
+    static let videoAspectRatio: CGFloat = 16.0 / 9.0
+    /// Row thumbnails. Deliberately *not* 16:9 — 74x44 is 1.68:1, a little
+    /// squarer than the video, which is what the reference rows measure.
     static let thumbWidth: CGFloat = 74
     static let thumbHeight: CGFloat = 44
     static let thumbCorner: CGFloat = 4

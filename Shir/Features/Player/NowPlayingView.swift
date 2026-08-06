@@ -19,18 +19,23 @@ struct NowPlayingView: View {
     @State private var scrubPosition: TimeInterval = 0
 
     var body: some View {
-        ZStack {
-            Theme.background.ignoresSafeArea()
+        // The stage needs a width it does not have to negotiate for, and a
+        // VStack cannot give it one — see `stage(width:)`. Reading the width
+        // once here is what makes the size definite.
+        GeometryReader { proxy in
+            ZStack {
+                Theme.background.ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                header
-                stage
-                scrubber
-                trackInfo
-                Spacer(minLength: 8)
-                transportControls
-                Spacer(minLength: 8)
-                secondaryControls
+                VStack(spacing: 0) {
+                    header
+                    stage(width: proxy.size.width)
+                    scrubber
+                    trackInfo
+                    Spacer(minLength: 8)
+                    transportControls
+                    Spacer(minLength: 8)
+                    secondaryControls
+                }
             }
         }
         .sheet(isPresented: $isShowingQueue) {
@@ -76,27 +81,52 @@ struct NowPlayingView: View {
 
     // MARK: - Stage
 
-    /// The video for YouTube tracks, artwork for imported files.
+    /// The video for YouTube tracks, artwork for imported files: one box, edge
+    /// to edge, 16:9, sized here rather than by each branch.
     ///
-    /// The web view stays mounted whenever a YouTube track is loaded. It is no
-    /// longer a compliance requirement — that went with the App Store — but it
-    /// is still a hard technical one: unmounting the view suspends the media
-    /// element, and the audio stops.
-    @ViewBuilder
-    private var stage: some View {
-        if playback.isPlayingYouTube {
-            YouTubePlayerView(webView: playback.youtubeEngine.webView)
-                .aspectRatio(16.0 / 9.0, contentMode: .fit)
-                .frame(maxWidth: .infinity)
-                .background(Color.black)
-        } else {
-            VideoThumbnail(
-                url: playback.currentTrack?.artworkURL,
-                width: UIScreen.main.bounds.width,
-                height: UIScreen.main.bounds.width * 9 / 16,
-                seed: abs(playback.currentTrack?.id.hashValue ?? 0)
-            )
+    /// It has to be a *definite* size, and that is the whole reason this takes
+    /// a width instead of asking for one. The stage used to say
+    /// `.aspectRatio(16.0 / 9.0, contentMode: .fit)` inside the VStack, which
+    /// reads as "be 16:9" but means "fit 16:9 inside whatever you are offered".
+    /// A stack offers each child a *share* of the height left over, and `.fit`
+    /// shrinks the width to match — a video barely half the screen wide,
+    /// correctly proportioned and far too small (CLAUDE.md §9 has the measured
+    /// numbers). `.frame(maxWidth: .infinity)` after it widened the frame but
+    /// not the video inside, which is why the result was centred rather than
+    /// stretched.
+    ///
+    /// Mounting is more subtle than it looks, and the old comment here — "un-
+    /// mounting the view suspends the media element" — turned out to be only
+    /// half true. WebKit suspends *silent* elements in a hidden page, which is
+    /// why a track cannot *start* unless this stage is mounted: it begins
+    /// muted, and the suspension beats the 900ms unmute. An *audibly playing*
+    /// element is explicitly spared, which is why the mini-player posture
+    /// keeps playing with no mount at all. Backgrounding is a different pause
+    /// entirely — WebKit force-pauses video sessions when the app leaves the
+    /// foreground, mounted or not — and the engine answers that one itself;
+    /// see `AutoResumePolicy` in ShirKit.
+    private func stage(width: CGFloat) -> some View {
+        let height = (width / Theme.videoAspectRatio).rounded()
+
+        return Group {
+            if playback.isPlayingYouTube {
+                YouTubePlayerView(webView: playback.youtubeEngine.webView)
+            } else {
+                VideoThumbnail(
+                    url: playback.currentTrack?.artworkURL,
+                    width: width,
+                    height: height,
+                    seed: abs(playback.currentTrack?.id.hashValue ?? 0)
+                )
+            }
         }
+        .frame(width: width, height: height)
+        .background(Color.black)
+        // The web view disables interaction, so there is nothing inside worth
+        // exposing — flattening it gives NowPlayingStageTests one element whose
+        // frame is the stage's frame.
+        .accessibilityElement(children: .ignore)
+        .accessibilityIdentifier("playerStage")
     }
 
     // MARK: - Scrubber
@@ -110,6 +140,13 @@ struct NowPlayingView: View {
                 ),
                 in: 0...max(playback.duration, 1),
                 onEditingChanged: { editing in
+                    // Seed from the live position before `isScrubbing` flips
+                    // the binding over to `scrubPosition`. A touch that never
+                    // drags never calls the setter, so without this, resting a
+                    // finger on the thumb and lifting seeks to whatever stale
+                    // value was there — 0 on first use, which restarts the
+                    // song.
+                    if editing { scrubPosition = playback.position }
                     playback.isScrubbing = editing
                     if !editing { playback.seek(to: scrubPosition) }
                 }

@@ -15,8 +15,9 @@ struct ShirApp: App {
                 .tint(Theme.accent)
         }
         .onChange(of: scenePhase) { _, phase in
-            // Local audio keeps going in the background; YouTube is paused here
-            // deliberately. See PlaybackCoordinator for why.
+            // Both sources keep playing in the background; the hook this calls
+            // is deliberately empty. It survives as the single place to
+            // reinstate the App Store pause rule — see PlaybackCoordinator.
             if phase == .background {
                 environment.playback.applicationDidEnterBackground()
             }

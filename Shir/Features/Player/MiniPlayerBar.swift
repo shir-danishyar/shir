@@ -48,9 +48,9 @@ struct MiniPlayerBar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("miniPlayerToggle")
-                // The label is how BackgroundPlaybackTests reads whether audio
-                // survived being backgrounded, so it has to say which state the
-                // player is in rather than which action the button performs.
+                // The standard toggle convention: the label names the action
+                // the tap performs ("Pause" while playing), which also lets a
+                // reader infer the current state from the bar alone.
                 .accessibilityLabel(playback.status.isPlaying ? "Pause" : "Play")
             }
             .padding(.horizontal, 8)

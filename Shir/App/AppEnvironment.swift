@@ -56,12 +56,15 @@ final class AppEnvironment {
                 )
             }
         }
+
+        // Test seam: `-autoplayVideoID <id>` starts playback with no UI
+        // driving it. BackgroundPlaybackTests depends on it, and it is also
+        // how a plain `simctl launch` reproduces playback issues without
+        // XCUITest — search-driven repros stall for reasons unrelated to
+        // what is usually being probed.
+        if let videoID = UserDefaults.standard.string(forKey: "autoplayVideoID") {
+            playback.play(.youtube(videoID: videoID, title: "Probe track", channelTitle: "Probe"))
+        }
     }
 
-    /// Removes a local track's file as well as its library entry, so deleting
-    /// from the UI actually reclaims storage.
-    func deleteLocalTrack(_ track: Track) {
-        LocalMediaImporter.deleteFile(for: track)
-        library.deleteTrack(id: track.id)
-    }
 }
