@@ -44,10 +44,10 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path ShirKit     # 90 unit tests, macOS, ~0.1s
+swift test --package-path ShirKit     # 94 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
-# 16 UI tests, ~4.5 min. BackgroundPlaybackTests needs the network. Use an explicit device id — several simulators share names.
+# 19 UI tests, ~5 min. BackgroundPlaybackTests and SearchAutoplayTests need the network. Use an explicit device id — several simulators share names.
 xcodebuild -project Shir.xcodeproj -scheme Shir \
   -destination 'platform=iOS Simulator,id=<UDID>' test
 
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `ShirKit` with a unit test.** ShirKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 90 tests in about a tenth of a second. The app target holds only
+simulator — 94 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -116,6 +116,7 @@ in the project (§8).
 | **ShirKit — YouTube** | |
 | `YouTube/PlayerScripts.swift` | Loads the `.js` from the package bundle. One place that knows where they live |
 | `YouTube/SuggestionClient.swift` | Autocomplete, over `HTTPFetching`. Native, not in a web view |
+| `YouTube/TrendingClient.swift` | The charts on the default Search screen. Keyless InnerTube `browse`, native, fixture-tested |
 | `YouTube/YouTubeVideo.swift` | A search result, before it becomes a `Track` |
 | `Resources/Scripts/AdStrip.js` | Deletes ad inventory before the player parses it |
 | `Resources/Scripts/BackgroundPlay.js` | Keeps audio alive with the screen off |
@@ -136,7 +137,7 @@ in the project (§8).
 | `Features/Library/PlaylistsView.swift` | Recent carousel, derived playlists, user playlists |
 | `Features/Library/TrackCollectionView.swift` | Shared body of playlist detail and derived playlists |
 | `Features/Library/AddToPlaylistSheet.swift` | Where `+` leads (§7) |
-| `Features/Search/SearchView.swift` | Field, history, suggestions, results — four states |
+| `Features/Search/SearchView.swift` | Field, history, suggestions, results, trending charts — five states |
 | `Features/Search/SearchViewModel.swift` | Two debounces, two tasks |
 | `Features/Player/NowPlayingView.swift` | Full-screen player. Mounts the engine's web view |
 | `Features/Player/MiniPlayerBar.swift` | The bar above the tab bar |
@@ -235,6 +236,11 @@ changed in 24 months of upstream filter history.
     answers WebKit itself, which force-pauses video sessions on backgrounding
     regardless of everything the page believes (pitfalls index has the
     mechanism). Any one missing and playback stops at home press or lock.
+11. **Command `play()` when the bridge comes up; never trust the watch page to
+    autoplay.** The page autoplays only when the web view is the visible
+    stage — anywhere else it sits silent with the bridge ready and nothing
+    playing. The engine's `"ready"` handler sends the explicit play, which
+    works in every posture.
 
 ### Why adblock-rust is not a dependency
 
@@ -292,6 +298,26 @@ at `.atDocumentStart`, so read it lazily; never persist a response thumbnail URL
 `https://i.ytimg.com/vi/<id>/hqdefault.jpg`); and `params: 'EgIQAQ=='` filters to
 videos, dropping Shorts and channel rows.
 
+### Trending
+
+The default Search screen's charts come from `TrendingClient` — a plain
+native keyless InnerTube `browse` of YouTube Charts' published playlists,
+pinned to the **global** editions (Top 100 / Daily Top): the chart country
+picker covers few countries, `gl` does not switch it, and global is the honest
+default rather than someone else's country. Verified live: no key, no
+cookies, no visitorData needed — like search and suggestions, PoToken gates
+only `/player`. Do **not** use `browseId: FEtrending`; YouTube removed the
+Trending page server-side (400) — the chart playlists are the living route.
+
+Items arrive as `lockupViewModel`, YouTube's newest and most churn-prone
+render format. The parser walks the whole response for lockups instead of
+hardcoding the wrapper nesting, and is tested against a captured fixture
+(`ShirKit/Tests/ShirKitTests/Fixtures/trending-browse.json`). When trending
+goes blank: re-capture with a keyless POST to
+`m.youtube.com/youtubei/v1/browse` (`browseId: "VL<playlistID>"`, MWEB
+client), diff against the fixture, fix the parser. MWEB lockups carry no
+duration (`overlays: null`) — that is why chart rows have no time badge.
+
 ### Suggestions
 
 `SuggestionClient` uses the endpoint YouTube's own search box uses:
@@ -339,7 +365,12 @@ rather than ids, so playback needs nothing stored.
 
 Each rule has a test:
 
-1. **Tapping a song plays it and touches nothing else.**
+1. **Tapping a song plays it, opens Now Playing, and touches nothing else in
+   the library.** The auto-open is the reference app's behaviour and a
+   technical requirement at once — playback cannot *start* without it (§9's
+   visibility trap). Only user-initiated plays open the cover
+   (`userPlaybackToken` in `PlaybackCoordinator`); a track ending and
+   advancing the queue never does.
 2. **`+` opens `AddToPlaylistSheet`.** Every row is a toggle, so the checkmarks
    double as "which lists is this already in".
 3. **The heart is the only control that adds to Favorites** — Now Playing, the
@@ -353,7 +384,7 @@ Each rule has a test:
 
 ## 8. Testing
 
-90 unit tests (macOS, ~0.1s) and 16 UI tests (simulator, ~4.5 min; BackgroundPlaybackTests needs the network).
+94 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
 
 **Anything with real logic belongs in ShirKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
@@ -408,7 +439,7 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | YouTube never plays again until the app is killed | One failed or redirected first navigation. `hasLoadedDocument` latched before the load was known to succeed, so every later track ran `loadVideoById` against a document that never existed and queued behind a bridge that could never be ready | `resetForRetry()` on `didFailProvisionalNavigation`, and clear `appInitiatedNavigation` on **commit** rather than first use, so a consent/region redirect is not cancelled |
 | Tapping the scrubber restarts the song | `onEditingChanged(true)` flips the binding's `get` to `scrubPosition` before the slider ever calls `set`, and a touch that never drags never calls it — so release seeks to a stale value, 0 on first use | Seed `scrubPosition` from the live position when editing begins |
 | Audio stops the instant the app is backgrounded | WebKit force-pauses every video session on backgrounding (`BackgroundProcessPlaybackRestricted`). It is C++ app state: no injected visibility override reaches it, and it fires whether or not the web view is mounted. `UIBackgroundModes: audio` does **not** exempt a `<video>` | Answer the unasked-for pause with an immediate `play()` — WebKit accepts it because the audio session is active. The when-to-answer judgement is `AutoResumePolicy` (ShirKit, unit-tested); `YouTubePlayerEngine` wires it to WebKit and to the `AVAudioSession` observers that keep it from also answering iOS. Guarded by `BackgroundPlaybackTests` |
-| A track never starts, spinner forever — but only when driven by automation | Playback can only *start* with Now Playing open. The video begins muted, and WebKit suspends silent elements in a hidden page before the 900ms unmute; the cover is the web view's only mount. Manual use always opens the cover, so only automation ever hits this | Launch with `-autoplayVideoID <id> -autoOpenNowPlaying YES` — the seams exist for exactly this. Do **not** conclude "the Simulator can't play YouTube"; it can |
+| A track never starts — spinner or cued overlay forever | WebKit refuses to **start** media in a web view that is not genuinely visible, and every hiding trick fails a different way, all measured: never-parented → the page runs no media at all; 1pt host → the page won't build a player into a 1px viewport; near-transparent → treated as hidden; occluded behind opaque UI → bridge comes up, `play()` ignored; fully visible → works instantly | Starting a song presents Now Playing (`userPlaybackToken`), which mounts the stage visibly — the one posture that works. Don't burn a day re-testing invisible-host tricks; five probe variants are in the git history. In tests, `-autoplayVideoID <id> -autoOpenNowPlaying YES` reproduces a playing state deterministically |
 | `.js` files missing at runtime | `.js` has no default build phase in Xcode | They live in ShirKit as SwiftPM resources — do not move them to the app target |
 | UI test cannot find an icon-only control | No accessibility identifier; SF Symbol names are undocumented and have changed between releases | Add `.accessibilityIdentifier` |
 | `typeText` silently dropped | SwiftUI focuses fields asynchronously | Gate on a UI change that only happens once text reached the binding. **Never sleep** |
@@ -514,8 +545,6 @@ Record provenance in a comment whenever you adapt code from any of these.
   filter has no InnerTube equivalent, so such a video can reach the queue. The
   authoritative signal is IFrame error **101/150** at playback, which the engine
   already reports; auto-skipping on it is not implemented.
-- **No discovery/browse landing page.** The Search tab shows a prompt on a fresh
-  install rather than curated content.
 - **"Recently Played" mirrors "Recently Added".** There is no play-history
   store; it is honestly a duplicate rather than fake data.
 - **Four Now Playing action buttons are inert** — plus, EQ, AirPlay and share
