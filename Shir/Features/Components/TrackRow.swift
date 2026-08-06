@@ -38,6 +38,9 @@ struct TrackRow: View {
 struct SearchResultRow: View {
     let video: YouTubeVideo
     var onAdd: () -> Void
+    /// Search results give titles two lines because YouTube titles are long;
+    /// the trending charts clamp to one, as the reference does.
+    var titleLineLimit: Int = 2
 
     var body: some View {
         HStack(spacing: 12) {
@@ -51,7 +54,7 @@ struct SearchResultRow: View {
                 Text(video.title)
                     .font(Theme.rowTitle)
                     .foregroundStyle(Theme.primaryText)
-                    .lineLimit(2)
+                    .lineLimit(titleLineLimit)
                     .multilineTextAlignment(.leading)
                 Text(video.channelTitle)
                     .font(Theme.rowSubtitle)

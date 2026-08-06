@@ -17,7 +17,10 @@ final class ShirUITests: ShirUITestCase {
         XCTAssertTrue(app.staticTexts["My Playlists"].waitForExistence(timeout: 5))
 
         app.tapTab("Search")
-        XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
+        // The field, not the idle prompt: with a network the resting screen is
+        // the trending charts, without one it is the prompt — the field is the
+        // one element present either way.
+        XCTAssertTrue(app.textFields["searchField"].waitForExistence(timeout: 5))
 
         app.tapTab("More")
         XCTAssertTrue(app.buttons["settingsRow"].waitForExistence(timeout: 5))

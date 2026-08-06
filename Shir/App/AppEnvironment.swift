@@ -11,6 +11,7 @@ final class AppEnvironment {
     let playback: PlaybackCoordinator
     let youtube: InnerTubeSearchClient
     let suggestions: SuggestionClient
+    let trending: TrendingClient
     let searchHistory: SearchHistoryStore
 
     /// Passed by the UI test target so each run starts from a clean library
@@ -44,6 +45,7 @@ final class AppEnvironment {
         playback = PlaybackCoordinator()
         youtube = InnerTubeSearchClient()
         suggestions = SuggestionClient()
+        trending = TrendingClient()
 
         if Self.wantsSeedData {
             for name in ["A", "B"] {

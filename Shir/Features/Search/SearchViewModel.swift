@@ -19,13 +19,18 @@ final class SearchViewModel {
     private(set) var isLoading = false
     private(set) var errorMessage: String?
     private(set) var hasSearched = false
+    /// The charts that fill the screen before any search — empty means the
+    /// fetch failed or hasn't landed, and the view keeps its plain prompt.
+    private(set) var trendingSections: [TrendingClient.Section] = []
 
     private let client: InnerTubeSearchClient
     private let suggestionClient: SuggestionClient
+    private let trending: TrendingClient
     private let history: SearchHistoryStore
 
     private var searchTask: Task<Void, Never>?
     private var suggestTask: Task<Void, Never>?
+    private var trendingTask: Task<Void, Never>?
 
     private let searchDebounce: UInt64 = 450_000_000
     private let suggestionDebounce: UInt64 = 150_000_000
@@ -33,16 +38,31 @@ final class SearchViewModel {
     init(
         client: InnerTubeSearchClient,
         suggestionClient: SuggestionClient,
+        trending: TrendingClient,
         history: SearchHistoryStore
     ) {
         self.client = client
         self.suggestionClient = suggestionClient
+        self.trending = trending
         self.history = history
     }
 
     var historyEntries: [String] { history.entries }
 
     // MARK: - Actions
+
+    /// One fetch per screen lifetime; charts don't move fast enough to be
+    /// worth re-fetching on every tab visit.
+    func loadTrendingIfNeeded() {
+        guard trendingSections.isEmpty, trendingTask == nil else { return }
+        trendingTask = Task { [weak self] in
+            guard let self else { return }
+            let sections = await trending.sections()
+            self.trendingSections = sections
+            // A failed fetch may retry on a later visit.
+            if sections.isEmpty { self.trendingTask = nil }
+        }
+    }
 
     func submit() {
         searchTask?.cancel()

@@ -46,9 +46,11 @@ struct SearchView: View {
                 model = SearchViewModel(
                     client: appEnvironment.youtube,
                     suggestionClient: appEnvironment.suggestions,
+                    trending: appEnvironment.trending,
                     history: appEnvironment.searchHistory
                 )
             }
+            model?.loadTrendingIfNeeded()
         }
     }
 
@@ -74,7 +76,11 @@ struct SearchView: View {
             case .results:
                 results(model: model)
             case .idle:
-                idlePrompt
+                if model.trendingSections.isEmpty {
+                    idlePrompt
+                } else {
+                    trendingSections(model: model)
+                }
             }
 
             Spacer(minLength: 0)
@@ -284,6 +290,99 @@ struct SearchView: View {
         .scrollDismissesKeyboard(.immediately)
     }
 
+    // MARK: - Trending
+
+    /// The default Search screen, after the reference: chart sections of
+    /// four-row pages that scroll sideways, with the next page's thumbnails
+    /// peeking at the edge.
+    private func trendingSections(model: SearchViewModel) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(model.trendingSections) { section in
+                    trendingSection(section)
+                }
+                Color.clear.frame(height: Theme.miniPlayerHeight + 24)
+            }
+        }
+        .scrollIndicators(.hidden)
+    }
+
+    private func trendingSection(_ section: TrendingClient.Section) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(section.title)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(Theme.primaryText)
+                Spacer()
+                NavigationLink {
+                    trendingList(section)
+                } label: {
+                    Text("See more")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.secondaryText)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 22)
+            .padding(.bottom, 4)
+
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 0) {
+                    ForEach(Array(section.videos.chunks(of: 4).enumerated()), id: \.offset) { pageIndex, page in
+                        VStack(spacing: 0) {
+                            ForEach(Array(page.enumerated()), id: \.element.id) { rowIndex, video in
+                                trendingRow(video, in: section, at: pageIndex * 4 + rowIndex)
+                            }
+                        }
+                        // 92% pages leave the next column of thumbnails
+                        // visible at the trailing edge, as the reference does.
+                        .containerRelativeFrame(.horizontal) { length, _ in length * 0.92 }
+                    }
+                }
+                .scrollTargetLayout()
+            }
+            .scrollTargetBehavior(.viewAligned)
+            .scrollIndicators(.hidden)
+        }
+    }
+
+    private func trendingRow(_ video: YouTubeVideo, in section: TrendingClient.Section, at index: Int) -> some View {
+        SearchResultRow(
+            video: video,
+            onAdd: { trackBeingAdded = video.track },
+            titleLineLimit: 1
+        )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            playback.play(section.videos.map(\.track), startingAt: index)
+        }
+    }
+
+    /// Where "See more" leads: the whole chart as a plain list.
+    private func trendingList(_ section: TrendingClient.Section) -> some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(Array(section.videos.enumerated()), id: \.element.id) { index, video in
+                    SearchResultRow(
+                        video: video,
+                        onAdd: { trackBeingAdded = video.track },
+                        titleLineLimit: 1
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        playback.play(section.videos.map(\.track), startingAt: index)
+                    }
+                    if index < section.videos.count - 1 { RowSeparator() }
+                }
+                Color.clear.frame(height: Theme.miniPlayerHeight + 24)
+            }
+        }
+        .scrollIndicators(.hidden)
+        .background(Theme.background)
+        .navigationTitle(section.title)
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var idlePrompt: some View {
         EmptyStateView(
             icon: "magnifyingglass",
@@ -306,10 +405,21 @@ struct SearchView: View {
     /// values rather than ids, so playback needs nothing stored — and quietly
     /// saving whatever you listened to is exactly what made every played song
     /// turn up under My Favorites.
+    // MARK: - Playback
+
     private func playFromResults(model: SearchViewModel, index: Int) {
         let tracks = model.results.map(\.track)
         guard tracks.indices.contains(index) else { return }
         playback.play(tracks, startingAt: index)
         isFieldFocused = false
+    }
+}
+
+/// Pagination for the trending carousels — four rows per sideways page.
+private extension Array {
+    func chunks(of size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }

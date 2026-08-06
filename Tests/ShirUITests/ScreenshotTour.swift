@@ -26,7 +26,10 @@ final class ScreenshotTour: ShirUITestCase {
         app.navigationBars.buttons.element(boundBy: 0).tap()
 
         app.tapTab("Search")
-        XCTAssertTrue(app.staticTexts["Find music"].waitForExistence(timeout: 5))
+        // The field is present in every resting state; the trending charts
+        // replace the "Find music" prompt whenever the network is up.
+        XCTAssertTrue(app.textFields["searchField"].waitForExistence(timeout: 5))
+        _ = app.staticTexts["Top Tracks"].waitForExistence(timeout: 10)
         save("05-search")
 
         app.tapTab("More")

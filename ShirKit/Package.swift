@@ -17,6 +17,10 @@ let package = Package(
             name: "ShirKit",
             resources: [.copy("Resources/Scripts")]
         ),
-        .testTarget(name: "ShirKitTests", dependencies: ["ShirKit"]),
+        .testTarget(
+            name: "ShirKitTests",
+            dependencies: ["ShirKit"],
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )
