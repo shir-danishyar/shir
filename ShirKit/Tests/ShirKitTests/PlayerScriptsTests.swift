@@ -281,6 +281,178 @@ final class PlayerScriptsTests: XCTestCase {
         XCTAssertTrue(context.evaluateScript("__fakeVideo.muted").toBool())
     }
 
+    // MARK: - Background pause replay
+
+    /// Shims for the backgrounding-pause replay in BackgroundPlay.js.
+    ///
+    /// The script needs four things a bare JSContext lacks: a document that
+    /// records event listeners so tests can dispatch `pause` and
+    /// `visibilitychange`; a true `visibilityState` on `Document.prototype`
+    /// (which the script captures before installing its always-visible spoof);
+    /// an `HTMLMediaElement.prototype` for it to wrap; and a controllable
+    /// clock, because the replay gate is a 2-second window around the
+    /// visible→hidden transition.
+    private static let backgroundShims = """
+        var __docListeners = {};
+        document.addEventListener = function (name, fn) {
+            (__docListeners[name] = __docListeners[name] || []).push(fn);
+        };
+        document.removeEventListener = function (name, fn) {
+            var a = __docListeners[name] || [];
+            var i = a.indexOf(fn);
+            if (i >= 0) { a.splice(i, 1); }
+        };
+        window.__dispatch = function (name, target) {
+            (__docListeners[name] || []).slice().forEach(function (fn) { fn({ target: target }); });
+        };
+
+        var __trueVisibility = 'visible';
+        Object.defineProperty(Document.prototype, 'visibilityState', {
+            get: function () { return __trueVisibility; },
+            configurable: true
+        });
+        window.__goHidden = function () { __trueVisibility = 'hidden'; __dispatch('visibilitychange', document); };
+        window.__goVisible = function () { __trueVisibility = 'visible'; __dispatch('visibilitychange', document); };
+
+        window.__now = 1000;
+        Date.now = function () { return __now; };
+
+        window.__timeouts = [];
+        window.setTimeout = function (fn) { __timeouts.push(fn); return __timeouts.length; };
+        window.clearTimeout = function (id) { if (id) { __timeouts[id - 1] = null; } };
+        window.__runTimeouts = function () {
+            var due = __timeouts.slice();
+            __timeouts = [];
+            due.forEach(function (fn) { if (fn) { fn(); } });
+        };
+
+        window.HTMLMediaElement = function () {};
+        HTMLMediaElement.prototype = {
+            play: function () { this.playCalls = (this.playCalls || 0) + 1; },
+            pause: function () {}
+        };
+        window.__video = { tagName: 'VIDEO', ended: false, playCalls: 0 };
+        """
+
+    /// The backgrounding sequence where WebKit's pause lands *after* the
+    /// page went hidden: home press or lock with the player on screen. This
+    /// replay must be in-page and synchronous — a native round trip loses the
+    /// race against process suspension on a real device, which is exactly the
+    /// bug that shipped: audio died at every home press on the phone while
+    /// passing on the simulator.
+    func testBackgroundPlayReplaysAPauseArrivingJustAfterHiding() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__goHidden(); __now += 300; __dispatch('pause', __video);")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 1)
+    }
+
+    /// The other race order: WebKit's pause can arrive while the document
+    /// still reads visible, with the transition following a beat later. The
+    /// replay must wait for the genuine transition and then fire.
+    func testBackgroundPlayReplaysAPauseArrivingJustBeforeHiding() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__dispatch('pause', __video);")
+        XCTAssertEqual(
+            context.evaluateScript("__video.playCalls").toInt32(), 0,
+            "a pause with no transition yet must not replay immediately — it could be AirPods"
+        )
+
+        context.evaluateScript("__now += 300; __goHidden();")
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 1)
+    }
+
+    /// A pause long after backgrounding is someone meaning it — the lock-card
+    /// pause button, a phone call, AirPods coming off in a pocket. Those are
+    /// the native policy's to judge; the in-page replay must stay out.
+    func testBackgroundPlayIgnoresAPauseLongAfterHiding() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__goHidden(); __now += 60000; __dispatch('pause', __video);")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 0)
+    }
+
+    /// A pause while visible that is never followed by a transition — AirPods
+    /// unplugged in the foreground. The armed wait must expire without playing.
+    func testBackgroundPlayIgnoresAForegroundPauseWithNoTransition() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__dispatch('pause', __video); __runTimeouts();")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 0)
+    }
+
+    /// A pause the page itself asked for — Shir's own pause command lands as
+    /// `pauseVideo()` → `element.pause()` — must never be replayed, even
+    /// mid-backgrounding.
+    func testBackgroundPlayIgnoresARequestedPause() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript(
+            """
+            HTMLMediaElement.prototype.pause.call(__video);
+            __goHidden();
+            __dispatch('pause', __video);
+            """
+        )
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 0)
+    }
+
+    /// A track that finished emits a pause too. Resurrecting it would fight
+    /// the queue's advance — mirror of the policy's `isFinished` guard.
+    func testBackgroundPlayNeverReplaysAnEndedVideo() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__video.ended = true; __goHidden(); __dispatch('pause', __video);")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 0)
+    }
+
+    /// Foregrounding is the mirror image of backgrounding: WebKit's restore
+    /// of a session it paused can itself land as a fresh unrequested pause
+    /// just after the hidden→visible transition (measured on device: pause →
+    /// player teardown → stream refetch → playing, ~390ms, every return).
+    /// Answering it in-page, on the element, skips the player-level restart.
+    func testBackgroundPlayReplaysAPauseJustAfterReturningToForeground() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__goHidden(); __now += 5000; __goVisible(); __now += 300; __dispatch('pause', __video);")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 1)
+    }
+
+    /// A pause long after the app came back is someone meaning it — AirPods
+    /// off, the pause button — and must not be answered in-page.
+    func testBackgroundPlayIgnoresAPauseLongAfterReturningToForeground() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript("__goHidden(); __now += 5000; __goVisible(); __now += 60000; __dispatch('pause', __video); __runTimeouts();")
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 0)
+    }
+
+    /// After a requested pause, a later play() re-arms the replay — the flag
+    /// is "who paused most recently", not a latch.
+    func testBackgroundPlayReplayReArmsAfterPlay() throws {
+        let context = try context(loading: .backgroundPlay, shims: Self.backgroundShims)
+
+        context.evaluateScript(
+            """
+            HTMLMediaElement.prototype.pause.call(__video);
+            HTMLMediaElement.prototype.play.call(__video);
+            __video.playCalls = 0;
+            __goHidden();
+            __dispatch('pause', __video);
+            """
+        )
+
+        XCTAssertEqual(context.evaluateScript("__video.playCalls").toInt32(), 1)
+    }
+
     // MARK: - Helpers
 
     private func project(_ json: String, in context: JSContext) throws -> [[String: Any]] {
