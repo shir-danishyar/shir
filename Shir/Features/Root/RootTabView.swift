@@ -17,23 +17,28 @@ struct RootTabView: View {
         @Bindable var playback = playback
 
         ZStack(alignment: .bottom) {
-            // The engine's web view, kept in the window — full-size but
-            // invisible behind the opaque tab UI — whenever Now Playing is
-            // closed. This is not decoration; both properties were measured:
-            // playback cannot START outside a window (a never-parented web
-            // view runs no page media at all — zero bridge messages), and a
-            // 1pt host is no better, because m.youtube.com will not build a
-            // player into a 1px CSS viewport (navigation commits, bridge
-            // never comes up). Full-size-but-invisible is the shape that
-            // works, and it is why tapping a search result plays immediately
-            // instead of sitting cued until the cover is opened. Audio
-            // *continues* fine unparented once audible; starting is what
-            // needs this. NowPlayingView takes the view over while the cover
-            // is up, so exactly one parent owns it at a time.
-            // Full opacity on purpose: WebKit treats a near-transparent view
-            // as invisible and stops the page, so the hiding is done by
-            // occlusion — everything above this in the ZStack draws on opaque
-            // black.
+            // The engine's web view, kept in the window — sized like the
+            // stage but occluded behind the opaque tab UI — whenever Now
+            // Playing is closed. Not for *starting* playback (occluded start
+            // was measured to fail; the auto-open of Now Playing is that
+            // fix), but for *continuing* it: WebKit treats a web view whose
+            // window becomes nil as "the application entered background" and
+            // pauses the media session, which on a physical device was an
+            // audible dip every time the cover was dismissed to the mini
+            // player. NowPlayingView takes the view over while the cover is
+            // up; dismantling the cover parks it back here — every handover
+            // window→window, never through nil.
+            // Full size and full opacity on purpose: WebKit treats a
+            // near-transparent or 1pt view as invisible and stops the page,
+            // so the hiding is done by occlusion — everything above this in
+            // the ZStack draws on opaque black.
+            GeometryReader { proxy in
+                OffstageYouTubePlayerHost(engine: playback.youtubeEngine)
+                    .frame(
+                        width: proxy.size.width,
+                        height: (proxy.size.width / Theme.videoAspectRatio).rounded()
+                    )
+            }
 
             TabView(selection: $selection) {
                 FavoritesView()
@@ -49,6 +54,9 @@ struct RootTabView: View {
                     .tabItem { Label("More", systemImage: "ellipsis") }
                     .tag(Tab.more)
             }
+            // The opaque backdrop that occludes the offstage web view, so no
+            // screen's own translucency can let the video bleed through.
+            .background(Theme.background.ignoresSafeArea())
 
             if playback.hasActiveTrack {
                 MiniPlayerBar { isShowingNowPlaying = true }

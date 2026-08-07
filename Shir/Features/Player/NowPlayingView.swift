@@ -111,7 +111,7 @@ struct NowPlayingView: View {
 
         return Group {
             if playback.isPlayingYouTube {
-                YouTubePlayerView(webView: playback.youtubeEngine.webView)
+                YouTubePlayerView(engine: playback.youtubeEngine)
             } else {
                 VideoThumbnail(
                     url: playback.currentTrack?.artworkURL,

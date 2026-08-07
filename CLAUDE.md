@@ -44,7 +44,7 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path ShirKit     # 97 unit tests, macOS, ~0.1s
+swift test --package-path ShirKit     # 104 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
 # 19 UI tests, ~5 min. BackgroundPlaybackTests and SearchAutoplayTests need the network. Use an explicit device id — several simulators share names.
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `ShirKit` with a unit test.** ShirKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 97 tests in about a tenth of a second. The app target holds only
+simulator — 104 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -238,12 +238,22 @@ changed in 24 months of upstream filter history.
    `PlayerSurface.js` — it flashes for the beat between playback starting
    and the unmute landing, and a user who cannot touch the page must never
    be told to tap it.
-10. **Background audio needs all four:** `UIBackgroundModes: audio`, an active
-    `.playback` `AVAudioSession`, the visibility overrides, and the engine's
-    auto-resume. The first three keep the *page* willing to play; the fourth
-    answers WebKit itself, which force-pauses video sessions on backgrounding
-    regardless of everything the page believes (pitfalls index has the
-    mechanism). Any one missing and playback stops at home press or lock.
+10. **Background audio needs all three:** `UIBackgroundModes: audio`, the
+    visibility overrides, and the answer to WebKit's backgrounding pause.
+    That answer is two-layered: `BackgroundPlay.js` replays in-page,
+    synchronously inside the pause event, because on a device the paused
+    session drops WebKit's media assertion and its processes suspend before
+    a native round trip can land (the simulator enforces no suspension —
+    this exact gap shipped); the native `AutoResumePolicy` remains the judge
+    for every slower case and for who-paused questions the page cannot see.
+    The audio *session* is deliberately **not** the app's to activate: WKWebView
+    media plays through WebKit's helper-process session, attributed to this
+    app, activated by WebKit on every play — and an app-side `.playback`
+    session alongside it is a rival that mediaserverd bounces with an
+    interruption pair at every foreground return (a measured one-second
+    pause). The engine *releases* the app session instead; only
+    `LocalAudioEngine` activates one. Brave ships the same split. Any leg
+    missing and playback stops at home press or lock.
 11. **Command `play()` when the bridge comes up; never trust the watch page to
     autoplay.** The page autoplays only when the web view is the visible
     stage — anywhere else it sits silent with the bridge ready and nothing
@@ -392,7 +402,7 @@ Each rule has a test:
 
 ## 8. Testing
 
-97 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
+104 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
 
 **Anything with real logic belongs in ShirKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
@@ -447,7 +457,10 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | YouTube never plays again until the app is killed | One failed or redirected first navigation. `hasLoadedDocument` latched before the load was known to succeed, so every later track ran `loadVideoById` against a document that never existed and queued behind a bridge that could never be ready | `resetForRetry()` on `didFailProvisionalNavigation`, and clear `appInitiatedNavigation` on **commit** rather than first use, so a consent/region redirect is not cancelled |
 | Tapping the scrubber restarts the song | `onEditingChanged(true)` flips the binding's `get` to `scrubPosition` before the slider ever calls `set`, and a touch that never drags never calls it — so release seeks to a stale value, 0 on first use | Seed `scrubPosition` from the live position when editing begins |
 | Audio stops the instant the app is backgrounded | WebKit force-pauses every video session on backgrounding (`BackgroundProcessPlaybackRestricted`). It is C++ app state: no injected visibility override reaches it, and it fires whether or not the web view is mounted. `UIBackgroundModes: audio` does **not** exempt a `<video>` | Answer the unasked-for pause with an immediate `play()` — WebKit accepts it because the audio session is active. The when-to-answer judgement is `AutoResumePolicy` (ShirKit, unit-tested); `YouTubePlayerEngine` wires it to WebKit and to the `AVAudioSession` observers that keep it from also answering iOS. Guarded by `BackgroundPlaybackTests` |
+| Backgrounding, locking, or minimizing Now Playing kills the music on a **real phone** while the simulator plays on happily; the lock-screen card's clock keeps counting in silence | Two device-only enforcements the simulator skips. (1) The paused session drops WebKit's `MediaPlayback` RunningBoard assertion, so the device suspends WebKit's processes before the native pause→bridge→Swift→`evaluateJavaScript` replay arrives — the resume loses the race it always won in the simulator. (2) Dismissing the `fullScreenCover` unparents the web view, and `WKApplicationStateTrackingView` treats a nil window as *application did enter background* — the very same `EnteringBackground` interruption, app foreground or not. The advancing clock proves nothing: MediaRemote extrapolates from the last published rate and nothing publishes a correction after suspension | Replay in-page, synchronously, inside the `pause` event (`BackgroundPlay.js`), gated on a genuine visible→hidden transition within 2s in either race order — so lock-card presses, calls and AirPods pauses (no transition) still fall through to `AutoResumePolicy`, which knows who paused. Same shape Brave ships; unit-tested in `PlayerScriptsTests` |
 | A track never starts — spinner or cued overlay forever | WebKit refuses to **start** media in a web view that is not genuinely visible, and every hiding trick fails a different way, all measured: never-parented → the page runs no media at all; 1pt host → the page won't build a player into a 1px viewport; near-transparent → treated as hidden; occluded behind opaque UI → bridge comes up, `play()` ignored; fully visible → works instantly | Starting a song presents Now Playing (`userPlaybackToken`), which mounts the stage visibly — the one posture that works. Don't burn a day re-testing invisible-host tricks; five probe variants are in the git history. In tests, `-autoplayVideoID <id> -autoOpenNowPlaying YES` reproduces a playing state deterministically |
+| An audible dip every time Now Playing is dismissed to the mini player — device only | Dismissal unparented the web view, and `WKApplicationStateTrackingView` treats `window == nil` as "application did enter background": the same `EnteringBackground` pause as a home press, replayed a beat later | The web view never leaves the window: `OffstageYouTubePlayerHost` stays mounted (occluded) in `RootTabView`, and `WebViewAdoptingView` adopts only from `didMoveToWindow`, so every handover is window→window. The occluded host cannot *start* playback (measured; the Now Playing auto-open is that fix) — it exists so playback *continues* |
+| Coming back from the lock screen or home pauses the video for about a second — and sometimes a "Session activation failed" alert appears | The app activated its own `.playback` `AVAudioSession` for YouTube playback. WKWebView audio actually plays through WebKit's helper-process session (non-mixable, attributed to the app, activated by WebKit itself on every play — `MediaSessionManagerInterface::sessionWillBeginPlayback`), so the app-side session was a *rival*: mediaserverd re-arbitrated on every foreground/unlock and bounced a begin/end interruption pair off WebKit's session. Confirmed live: "interruption began" lands ~17ms after `state playing` | The YouTube engine never activates the app session — it *releases* it on `load` (`releaseAppAudioSession`), so handing over from a local file cannot leave a rival up. Brave touches `AVAudioSession` nowhere for the same reason. `LocalAudioEngine` keeps its own activation — AVPlayer genuinely plays in-process |
 | `.js` files missing at runtime | `.js` has no default build phase in Xcode | They live in ShirKit as SwiftPM resources — do not move them to the app target |
 | UI test cannot find an icon-only control | No accessibility identifier; SF Symbol names are undocumented and have changed between releases | Add `.accessibilityIdentifier` |
 | `typeText` silently dropped | SwiftUI focuses fields asynchronously | Gate on a UI change that only happens once text reached the binding. **Never sleep** |
@@ -558,6 +571,13 @@ Record provenance in a comment whenever you adapt code from any of these.
 - **Four Now Playing action buttons are inert** — plus, EQ, AirPlay and share
   are laid out but not wired.
 - **No search pagination.** One page of results, roughly 20 items.
+- **A sub-second audio dip at home press or lock is inherent.** WebKit
+  force-pauses the session (`EnteringBackground`) and the in-page replay
+  answers in the same event turn; what remains is the device's audio-pipeline
+  restart. No API lifts the interruption (verified against WebKit main —
+  the only exemptions are PiP, AirPlay, CarPlay), and Brave's implementation
+  has the identical dip. The simulator restarts audio instantly, so it is
+  inaudible there.
 
 Two stale artefacts this section used to track are gone: `spike/` (the Phase 0
 background-playback spike — answered its question) and

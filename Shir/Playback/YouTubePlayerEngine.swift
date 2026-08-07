@@ -34,6 +34,14 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     /// player every time Now Playing is dismissed.
     private(set) lazy var webView: WKWebView = makeWebView()
 
+    /// Where the web view lives whenever Now Playing is closed. `RootTabView`
+    /// keeps this host mounted (occluded) for the app's lifetime, so
+    /// dismissing the cover reparents the web view window→window instead of
+    /// dropping it to `window == nil` — which WebKit treats as the app
+    /// backgrounding and answers by pausing the media session. That pause was
+    /// the audible dip at every cover dismissal on a physical device.
+    let offstageHost = WebViewAdoptingView()
+
     /// True once `Bridge.js` has found `#movie_player` and wired its listeners.
     private var isBridgeReady = false
 
@@ -74,12 +82,28 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     override init() {
         super.init()
         observeAudioSession()
+        offstageHost.webViewProvider = { [weak self] in self?.webView ?? WKWebView() }
+    }
+
+    /// Returns the web view to the offstage host. Safe to call at any time;
+    /// does nothing if the host is not in a window yet or already owns it.
+    func parkWebView() {
+        offstageHost.adoptIfPossible()
     }
 
     /// Field diagnostics, deliberately sparse — only rare events, never the
     /// 500ms progress stream. Works on a sideloaded device too:
     /// `log stream --predicate 'subsystem == "shir.probe"'`.
     private static let probeLog = Logger(subsystem: "shir.probe", category: "engine")
+
+    /// Debug-only stdout trace with a monotonic-enough timestamp, so a
+    /// `devicectl launch --console` session shows the *durations* between
+    /// player events — which OSLog probe lines and bare `print`s do not.
+    private func trace(_ message: @autoclosure () -> String) {
+        #if DEBUG
+        print(String(format: "SHIR t=%.3f ", Date().timeIntervalSinceReferenceDate) + message())
+        #endif
+    }
 
     // MARK: - PlaybackEngine
 
@@ -89,7 +113,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
             return
         }
         onStateChange?(.buffering)
-        activateAudioSession()
+        releaseAppAudioSession()
         resumePolicy.noteLoad(autoplay: autoplay)
 
         guard hasLoadedDocument else {
@@ -106,7 +130,6 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
 
     func play() {
         resumePolicy.notePlay()
-        activateAudioSession()
         run("__shir.play()")
     }
 
@@ -131,21 +154,29 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
 
     // MARK: - Audio session
 
-    /// Activated lazily rather than at launch, so the app doesn't interrupt
-    /// whatever else is playing until a song actually starts.
+    /// The app's own `AVAudioSession` must be *inactive* while YouTube plays.
     ///
-    /// One of the four legs background audio stands on, with
-    /// `UIBackgroundModes: audio`, the visibility overrides in
-    /// `BackgroundPlay.js`, and the auto-resume below — CLAUDE.md §5 rule 10
-    /// keeps the list. Any one missing and playback stops at home press or
-    /// lock.
-    private func activateAudioSession() {
+    /// This engine used to activate a `.playback` session here, reasoning it
+    /// was one of background audio's legs. Measured on device, it was the
+    /// opposite: WKWebView media plays through WebKit's helper process's own
+    /// non-mixable session, attributed to this app — WebKit activates it on
+    /// every playback admission (verified in `MediaSessionManagerInterface::
+    /// sessionWillBeginPlayback`). Two rival non-mixable sessions in one app
+    /// made mediaserverd bounce a begin/end interruption pair on WebKit's
+    /// session at every foreground return and unlock: an audible one-second
+    /// pause-and-resume, plus the occasional "Session activation failed"
+    /// alert when the app-side activation lost. Brave never touches
+    /// AVAudioSession for exactly this reason. `UIBackgroundModes: audio`
+    /// covers WebKit's attributed session, so backgrounding still works.
+    ///
+    /// The release matters when a local file played first: `LocalAudioEngine`
+    /// rightly owns an active session, and handing over to YouTube must not
+    /// leave it up to preempt WebKit's.
+    private func releaseAppAudioSession() {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
+            try AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         } catch {
-            onError?("Could not start audio: \(error.localizedDescription)")
+            // Not active is the common case, and exactly what we want.
         }
     }
 
@@ -187,6 +218,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         switch type {
         case .began:
             Self.probeLog.log("audio interruption began")
+            trace("app audio session interruption began")
             resumePolicy.noteInterruptionBegan()
         case .ended:
             let rawOptions = note.userInfo?[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
@@ -195,6 +227,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
                 shouldResume: options.contains(.shouldResume)
             )
             Self.probeLog.log("audio interruption ended, resuming \(resuming, privacy: .public)")
+            trace("app audio session interruption ended, resuming \(resuming)")
             if resuming { play() }
         @unknown default:
             break
@@ -325,6 +358,7 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
 
         case "state":
             guard let name = payload["state"] as? String else { return }
+            trace("state \(name)")
             if name == "playing" { resumePolicy.notePlaying() }
             // The track finished. If the queue has more, the coordinator
             // starts the next one and `load` re-arms; if it does not, nothing
@@ -342,6 +376,7 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             onStateChange?(Self.engineState(named: name))
             if name == "paused", resumePolicy.shouldResumeAfterUnrequestedPause() {
                 Self.probeLog.log("auto-resume")
+                trace("auto-resume answering unrequested pause")
                 play()
             }
 
@@ -362,9 +397,7 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             onError?(Self.message(forErrorCode: code))
 
         case "log":
-            #if DEBUG
-            if let text = payload["text"] as? String { print("SHIR js: \(text)") }
-            #endif
+            if let text = payload["text"] as? String { trace("js: \(text)") }
 
         default:
             break
