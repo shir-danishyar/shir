@@ -10,10 +10,22 @@ import SwiftUI
 ///
 /// Everything is the accent colour and everything is large. That is the whole
 /// visual idea — this screen has one job and does not hedge about it.
+///
+/// This is a layer in `RootTabView`'s `ZStack`, not a `fullScreenCover`. A
+/// `.fullScreen` presentation removes the presenting view from the window once
+/// it settles, so a pull-down would expose black rather than the library behind
+/// — measured, not assumed. Being a sibling of the offstage web-view host also
+/// retires an entire UIKit presentation lifecycle, which §9 records being burned
+/// by twice.
 struct NowPlayingView: View {
     @Environment(PlaybackCoordinator.self) private var playback
     @Environment(LibraryStore.self) private var library
-    @Environment(\.dismiss) private var dismiss
+
+    /// Closes the screen. An explicit closure rather than
+    /// `@Environment(\.dismiss)` because this is no longer a presentation —
+    /// it is a layer in `RootTabView`'s stack, and `dismiss` has nothing to
+    /// act on.
+    let onDismiss: () -> Void
 
     @State private var isShowingQueue = false
     @State private var scrubPosition: TimeInterval = 0
@@ -58,7 +70,7 @@ struct NowPlayingView: View {
             }
 
             HStack {
-                Button { dismiss() } label: {
+                Button { onDismiss() } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(Theme.primaryText)

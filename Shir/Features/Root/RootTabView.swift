@@ -39,6 +39,7 @@ struct RootTabView: View {
                         height: (proxy.size.width / Theme.videoAspectRatio).rounded()
                     )
             }
+            .accessibilityHidden(isShowingNowPlaying)
 
             TabView(selection: $selection) {
                 FavoritesView()
@@ -57,12 +58,34 @@ struct RootTabView: View {
             // The opaque backdrop that occludes the offstage web view, so no
             // screen's own translucency can let the video bleed through.
             .background(Theme.background.ignoresSafeArea())
+            // A sibling layer leaves the library in the accessibility tree,
+            // where a UI-test query can match a row underneath the player.
+            // This restores the isolation the modal presentation gave free.
+            .accessibilityHidden(isShowingNowPlaying)
 
             if playback.hasActiveTrack {
-                MiniPlayerBar { isShowingNowPlaying = true }
+                MiniPlayerBar { withAnimation(.snappy(duration: 0.3)) { isShowingNowPlaying = true } }
                     // Sits directly above the tab bar rather than over it.
                     .padding(.bottom, 49)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .accessibilityHidden(isShowingNowPlaying)
+            }
+
+            // Not a `fullScreenCover`: that presentation style removes the
+            // presenting view from the window once it settles, so there would
+            // be nothing behind the player for a pull-down to reveal — black,
+            // measured on a 200pt probe offset. The layer's own
+            // `Theme.background.ignoresSafeArea()` is what covers the status
+            // bar and the tab bar, so this must NOT ignore safe areas itself:
+            // that would slide the header under the clock.
+            if isShowingNowPlaying {
+                NowPlayingView(onDismiss: { isShowingNowPlaying = false })
+                    // Removal is `.identity` because the exit animation has
+                    // already carried the layer off the bottom by the time it
+                    // goes away — a removal transition would slide it twice.
+                    .transition(.asymmetric(insertion: .move(edge: .bottom),
+                                            removal: .identity))
+                    .zIndex(1)
             }
         }
         .animation(.snappy(duration: 0.25), value: playback.hasActiveTrack)
@@ -70,10 +93,7 @@ struct RootTabView: View {
         // does. It is also what makes playback start at all — see
         // `userPlaybackToken` in PlaybackCoordinator.
         .onChange(of: playback.userPlaybackToken) {
-            isShowingNowPlaying = true
-        }
-        .fullScreenCover(isPresented: $isShowingNowPlaying) {
-            NowPlayingView()
+            withAnimation(.snappy(duration: 0.3)) { isShowingNowPlaying = true }
         }
         .alert(
             "Playback problem",
