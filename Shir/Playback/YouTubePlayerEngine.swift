@@ -11,8 +11,12 @@ import WebKit
 /// keeping audio alive in the background. Loading the mobile site directly is
 /// what makes injection possible at all.
 ///
-/// Four scripts do the work, all at `.atDocumentStart` in `WKContentWorld.page`:
+/// Five scripts do the work, all at `.atDocumentStart` in `WKContentWorld.page`:
 ///
+/// - `MediaSession.js` owns `navigator.mediaSession` — the lock-screen card
+///   and its buttons. It MUST stay first in `PlayerScripts.player`: it captures
+///   the pristine `setActionHandler` before anything can wrap it, and a script
+///   injected ahead of it would silently kill the next button
 /// - `AdStrip.js` deletes the ad inventory before the player parses it
 /// - `BackgroundPlay.js` keeps playback alive with the screen off
 /// - `PlayerSurface.js` hides YouTube's chrome so this is a player, not a browser
@@ -28,6 +32,13 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     var onStateChange: ((EngineState) -> Void)?
     var onProgress: ((TimeInterval, TimeInterval) -> Void)?
     var onError: ((String) -> Void)?
+
+    /// Lock-screen and Control Center presses, forwarded from `MediaSession.js`.
+    ///
+    /// Not part of `PlaybackEngine`: `LocalAudioEngine`'s remote commands arrive
+    /// natively through `MPRemoteCommandCenter` and work correctly, so giving it
+    /// a no-op property would imply a symmetry that does not exist.
+    var onRemoteCommand: ((RemoteCommand) -> Void)?
 
     /// Exposed so `YouTubePlayerView` can put this very web view on screen.
     /// One instance for the app's lifetime — recreating it would restart the
@@ -54,6 +65,10 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
     /// the audio session survives a track change.
     private var hasLoadedDocument = false
     private var wantsAutoplayOnReady = true
+
+    /// The track most recently handed to the player, so its metadata can be
+    /// pushed again once a navigation has rebuilt the document.
+    private var loadedTrack: Track?
 
     /// Set immediately before any `webView.load`, consumed by the navigation
     /// policy. Anything arriving without it came from the page itself.
@@ -115,6 +130,7 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         onStateChange?(.buffering)
         releaseAppAudioSession()
         resumePolicy.noteLoad(autoplay: autoplay)
+        loadedTrack = track
 
         guard hasLoadedDocument else {
             hasLoadedDocument = true
@@ -125,16 +141,23 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
             return
         }
 
-        run(autoplay ? "__shir.load('\(escape(videoID))')" : "__shir.cue('\(escape(videoID))')")
+        run(autoplay ? "__shir.load(\(Self.jsString(videoID)))" : "__shir.cue(\(Self.jsString(videoID)))")
+        pushNowPlayingMetadata()
     }
 
     func play() {
         resumePolicy.notePlay()
+        wantsAutoplayOnReady = true
         run("__shir.play()")
     }
 
     func pause() {
         resumePolicy.notePause()
+        // A pause before the bridge is ready must also cancel the pending
+        // autoplay: otherwise "ready" plays (re-arming the policy), then
+        // flushes the queued pause — which now reads as unrequested and gets
+        // auto-resumed, overriding the user's explicit pause.
+        wantsAutoplayOnReady = false
         run("__shir.pause()")
     }
 
@@ -144,6 +167,12 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
 
     func stop() {
         resumePolicy.notePlaybackEnded()
+        loadedTrack = nil
+        // Stand the page's media session down: clear the card and make its
+        // handlers report-only. The web view outlives stop(), so without this
+        // a stale lock-screen card's play press would restart the stopped
+        // video from inside the page — before any Swift gate can run.
+        run("window.__shirMedia && __shirMedia.deactivate()")
         run("__shir.stop()")
         onStateChange?(.idle)
     }
@@ -314,10 +343,40 @@ final class YouTubePlayerEngine: NSObject, PlaybackEngine {
         for command in commands { run(command) }
     }
 
-    private func escape(_ value: String) -> String {
-        value.replacingOccurrences(of: "\\", with: "\\\\")
-             .replacingOccurrences(of: "'", with: "\\'")
+    // MARK: - Lock screen
+
+    /// Pushes Shir's own track metadata into the page's media session.
+    ///
+    /// This is what the lock screen actually renders for a YouTube track.
+    /// `MediaSession.js` locks `navigator.mediaSession.metadata`, so without this
+    /// the card is blank — and without the lock, YouTube would put the
+    /// advertiser's name and artwork there during a pre-roll.
+    ///
+    /// `run(_:)` queues until the bridge is ready, so calling this during a
+    /// navigation is safe; it replays on "ready".
+    func pushNowPlayingMetadata() {
+        guard let track = loadedTrack else { return }
+        let arguments = [track.title, track.artist, "", track.artworkURL?.absoluteString ?? ""]
+            .map(Self.jsString)
+            .joined(separator: ", ")
+        run("window.__shirMedia && __shirMedia.setMetadata(\(arguments))")
     }
+
+    /// Encodes a string as a JavaScript literal — the one encoder for anything
+    /// interpolated into `run(_:)`.
+    ///
+    /// JSON encoding, not hand-rolled quote escaping: a quotes-and-backslashes
+    /// helper is enough for an 11-character video id and nowhere near enough
+    /// for a track title arriving from YouTube search — a newline or a U+2028
+    /// would produce a syntax error, and the push would fail silently, leaving
+    /// a blank lock screen (or a dead load) with no other symptom.
+    private static func jsString(_ value: String) -> String {
+        guard let data = try? JSONEncoder().encode(value),
+              let literal = String(data: data, encoding: .utf8)
+        else { return "\"\"" }
+        return literal
+    }
+
 }
 
 // MARK: - Script messages
@@ -354,6 +413,7 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             } else {
                 run("__shir.pause()")
             }
+            pushNowPlayingMetadata()
             flushPendingCommands()
 
         case "state":
@@ -395,6 +455,18 @@ extension YouTubePlayerEngine: WKScriptMessageHandler {
             resumePolicy.notePlaybackEnded()
             onStateChange?(.idle)
             onError?(Self.message(forErrorCode: code))
+
+        case "remote":
+            guard let action = payload["action"] as? String else { return }
+            trace("remote \(action)")
+            switch action {
+            case "next": onRemoteCommand?(.next)
+            case "previous": onRemoteCommand?(.previous)
+            case "play": onRemoteCommand?(.play)
+            case "pause": onRemoteCommand?(.pause)
+            case "seek": onRemoteCommand?(.seek(payload["time"] as? Double ?? 0))
+            default: break
+            }
 
         case "log":
             if let text = payload["text"] as? String { trace("js: \(text)") }

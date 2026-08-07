@@ -16,10 +16,12 @@ enum PlaybackStatus: Equatable {
 ///
 /// Both engines keep playing with the screen off, by very different routes —
 /// `LocalAudioEngine` through AVFoundation, `YouTubePlayerEngine` through the
-/// four-part machinery in CLAUDE.md §5 rule 10 — but the coordinator does not
-/// need to care, which is the point of the `PlaybackEngine` protocol. Lock
-/// screen *controls* are asymmetric: local files get them via MPRemoteCommand
-/// normally; for YouTube tracks they are a known gap (CLAUDE.md §12).
+/// machinery in CLAUDE.md §5 rule 10 — but the coordinator does not need to
+/// care, which is the point of the `PlaybackEngine` protocol. Lock screen
+/// *controls* are asymmetric by mechanism: local files get them via
+/// `MPRemoteCommandCenter` normally, while YouTube presses arrive through the
+/// page's media session (`MediaSession.js` → `handle(remoteCommand:)`),
+/// because WebKit owns the card whenever web media plays.
 ///
 /// Until 2026-08-04 the engines were deliberately asymmetric and YouTube
 /// paused on backgrounding. That was an App Store constraint, and it left
@@ -67,7 +69,43 @@ final class PlaybackCoordinator {
         self.localEngine = local
         wire(youtube)
         wire(local)
+        youtube.onRemoteCommand = { [weak self] command in
+            self?.handle(remoteCommand: command)
+        }
         configureRemoteCommands()
+    }
+
+    /// Lock-screen and Control Center presses for YouTube tracks, forwarded by
+    /// `MediaSession.js` — WebKit owns the card while web media plays, so
+    /// `MPRemoteCommandCenter` never sees these (that path stays for
+    /// `LocalAudioEngine`).
+    ///
+    /// Everything routes through the NORMAL control methods, with the same
+    /// gates as the `MPRemoteCommandCenter` handlers below: `hasActiveTrack`,
+    /// and the current track's engine — never a hardcoded one. The web view
+    /// and its media session outlive `stop()`, so a stale card can still send
+    /// presses after the queue is cleared or a local file has taken over;
+    /// ungated, a `.play` restarted the dead YouTube video as ghost audio the
+    /// UI showed as idle.
+    ///
+    /// There are no status writes here. The correction over the reverted
+    /// `53cdda6`: the page's action handler pauses in-page, which
+    /// `AutoResumePolicy` cannot see — so `.pause` must reach
+    /// `youtubeEngine.pause()` (via `engine(for:)` whenever the current track
+    /// is YouTube) for `notePause()` to run, or the policy treats the
+    /// following "paused" state as unrequested and answers it: a lock-screen
+    /// pause that un-pauses itself. The page posts the remote message before
+    /// acting on the player at all, so `notePause()` beats the state event
+    /// structurally — not by trusting YouTube's event timing.
+    private func handle(remoteCommand command: RemoteCommand) {
+        guard hasActiveTrack else { return }
+        switch command {
+        case .next: next()
+        case .previous: previous()
+        case .play: engine(for: currentTrack)?.play()
+        case .pause: engine(for: currentTrack)?.pause()
+        case let .seek(time): seek(to: time)
+        }
     }
 
     // MARK: - Starting playback
@@ -323,6 +361,12 @@ final class PlaybackCoordinator {
             MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
             return
         }
+        // While the page's video plays, WebKit republishes MediaRemote with a
+        // REPLACE policy within a tick of anything written here — the YouTube
+        // card is MediaSession.js's to maintain, and writing anyway is two
+        // clobbered XPC round trips per second for hours. This center is the
+        // local engine's.
+        guard case .localFile = track.source else { return }
         var info: [String: Any] = [
             MPMediaItemPropertyTitle: track.title,
             MPMediaItemPropertyArtist: track.artist,

@@ -44,7 +44,7 @@ internalising before changing anything:
 
 ```bash
 xcodegen generate                     # after ANY change to project.yml
-swift test --package-path ShirKit     # 104 unit tests, macOS, ~0.1s
+swift test --package-path ShirKit     # 119 unit tests, macOS, ~0.1s
 ./scripts/typecheck-ios.sh            # compile-only gate, seconds, no simulator
 
 # 19 UI tests, ~5 min. BackgroundPlaybackTests and SearchAutoplayTests need the network. Use an explicit device id — several simulators share names.
@@ -74,7 +74,7 @@ manual and interactive; an agent cannot do it.
 │                     down via .environment()                    │
 │      ↕                                                         │
 │  PlaybackCoordinator ── routes the queue to an engine          │
-│      ├── YouTubePlayerEngine   WKWebView + 4 injected scripts  │
+│      ├── YouTubePlayerEngine   WKWebView + 5 injected scripts  │
 │      └── LocalAudioEngine      AVPlayer                        │
 │                     both conform to PlaybackEngine             │
 │                                                                │
@@ -92,7 +92,7 @@ manual and interactive; an agent cannot do it.
 
 **Anything with real logic goes in `ShirKit` with a unit test.** ShirKit imports
 no UI framework, so its tests run on macOS in milliseconds instead of booting a
-simulator — 104 tests in about a tenth of a second. The app target holds only
+simulator — 119 tests in about a tenth of a second. The app target holds only
 what genuinely needs UIKit, WebKit or AVFoundation.
 
 `JavaScriptCore` is **not** a UI framework, which is why the injected scripts
@@ -118,6 +118,7 @@ in the project (§8).
 | `YouTube/SuggestionClient.swift` | Autocomplete, over `HTTPFetching`. Native, not in a web view |
 | `YouTube/TrendingClient.swift` | The charts on the default Search screen. Keyless InnerTube `browse`, native, fixture-tested |
 | `YouTube/YouTubeVideo.swift` | A search result, before it becomes a `Track` |
+| `Resources/Scripts/MediaSession.js` | Owns `navigator.mediaSession`: Shir's metadata on the lock screen, presses routed to Shir's queue. Injected first |
 | `Resources/Scripts/AdStrip.js` | Deletes ad inventory before the player parses it |
 | `Resources/Scripts/BackgroundPlay.js` | Keeps audio alive with the screen off |
 | `Resources/Scripts/PlayerSurface.js` | Hides YouTube's chrome |
@@ -190,6 +191,11 @@ certificate on your own device.
 Two engines, one coordinator, one protocol. `PlaybackCoordinator.isActive(_:)`
 drops events from whichever engine is not in charge, so a stopping engine's
 final `.idle` cannot clobber the track just started on the other one.
+
+The lock screen is part of the injected-scripts surface: for YouTube tracks
+the Now Playing card is published by WebKit from what the *page's* media
+session holds, so `MediaSession.js` — not `MPNowPlayingInfoCenter` — is what
+puts Shir's title and buttons there (§9 has both traps).
 
 ### The YouTube technique
 
@@ -402,7 +408,7 @@ Each rule has a test:
 
 ## 8. Testing
 
-104 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
+119 unit tests (macOS, ~0.1s) and 19 UI tests (simulator, ~5 min; BackgroundPlaybackTests and SearchAutoplayTests need the network).
 
 **Anything with real logic belongs in ShirKit with a unit test.** The UI tests
 exist only for what unit tests structurally cannot see: navigation, persistence
@@ -473,6 +479,8 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | `min`/`max` resolve wrongly in a `Collection` extension | They hit `Sequence`'s instance methods | Qualify: `Swift.min` |
 | Nested `NavigationStack` leaves content unreachable | A pushed view owning its own stack | Pushed views must not create one |
 | A `Button` inside a row swallows the row's tap | Default button style | `.buttonStyle(.plain)` |
+| A lock-screen or Control Center pause un-pauses itself a beat later | The card's pause acts in-page (or in WebKit's C++), so `AutoResumePolicy` never learns it was requested — the following "paused" state looks unanswered-for and the auto-resume answers it. Captured live: four Control Center pauses, four auto-un-pauses | Remote presses route through `PlaybackCoordinator.handle(remoteCommand:)` → `youtubeEngine.pause()`, so `notePause()` runs before the state event arrives. Script messages deliver in order — the page posts `remote` before the player's async state event |
+| No next/previous buttons on the lock-screen card for YouTube tracks | WebKit builds the card's button set from what the *page* registers, plus a play/pause fallback. `MPRemoteCommandCenter.nextTrackCommand` can never produce a next button for web media | `MediaSession.js` registers `nexttrack`/`previoustrack` (and nulls `seekforward`/`seekbackward`, which occupy the same two slots) and forwards presses over the bridge |
 
 ---
 
@@ -555,13 +563,17 @@ Record provenance in a comment whenever you adapt code from any of these.
 
 **Not built:**
 
-- **Lock-screen Now Playing controls for YouTube tracks.** Attempted in
-  `53cdda6` and reverted in `69a3e3f`; the revert records no reason, so treat
-  the approach as unproven rather than rejected. That commit message contains a
-  detailed mechanism analysis — WebKit writing MediaRemote from the WebContent
-  process, and the lock screen's button set being derived from what the *page*
-  registers — which is worth reading before trying again. Local files are
-  unaffected: `LocalAudioEngine` gets lock-screen controls normally.
+- **Lock-screen controls for YouTube tracks: implemented, device verdict
+  pending.** The `53cdda6` approach (reverted on simulator evidence the commit
+  itself called unanswerable there) is restored per the 2026-08-06 spec in
+  `docs/superpowers/specs/`, with its one real bug corrected: a remote `.pause`
+  now routes through `youtubeEngine.pause()` so `AutoResumePolicy` learns the
+  pause was requested — the reverted code's lock-screen pause would have
+  un-paused itself. The simulator gate passed ("MediaSession owned", playback
+  intact); what only a locked physical device can answer — card, artwork, all
+  four transports moving *Shir's* queue — is awaiting the next sideload test.
+  Record the verdict here. Local files are unaffected: `LocalAudioEngine` gets
+  lock-screen controls normally via `MPRemoteCommandCenter`.
 - **Non-embeddable videos are not skipped.** The Data API's `videoEmbeddable`
   filter has no InnerTube equivalent, so such a video can reach the queue. The
   authoritative signal is IFrame error **101/150** at playback, which the engine
