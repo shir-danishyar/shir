@@ -5,6 +5,11 @@
 the one signal the original commit itself said could not answer the question.
 The approach was never disproven where it counts: a locked physical device.
 
+> **As built, 2026-08-07:** implemented in `40f929b` with device-driven
+> companions `ed33c23`, `0837067`, `777d424`. Implementation overruled this
+> design in five places — see "As built" at the end. Where this document and
+> the code disagree, the code and CLAUDE.md are right.
+
 ## Goal
 
 The lock screen and Control Center show play/pause/next/previous (plus track
@@ -147,3 +152,36 @@ scripts surface.
 - `skipad` action, `nextslide`, playlist UI on the card.
 - Any change to search, trending, or the second web view (it never plays,
   so it cannot become the active now-playing process — verified, claim 3).
+
+## As built (2026-08-07) — where implementation overruled this design
+
+Implemented in `40f929b` after a ten-finding adversarial review, then
+device-tested. The deviations, each with its reason:
+
+1. **`MediaSession.js` was not "restored as-is."** The handlers post the
+   remote message **before** acting on the player, so `notePause()` beats
+   the state event *structurally* — this spec's argument leaned on message
+   delivery order, which trusted YouTube's event timing more than it had to.
+2. **`seekto` is notify-only.** The spec's route (in-page pre-seek + Swift
+   `seek(to:)`) applied the same absolute time twice — an audible snap-back
+   on every lock-screen scrub. Only Swift seeks now.
+3. **Remote commands are gated like every other control path**:
+   `hasActiveTrack`, and `engine(for: currentTrack)` — never the hardcoded
+   YouTube engine this spec's routing table showed. The web view outlives
+   `stop()`, so a stale card could otherwise restart a dead video as ghost
+   audio, or drive YouTube over a local file. `stop()` also stands the page
+   session down (`__shirMedia.deactivate`); the next load re-arms it.
+4. **The metadata getter hands out a copy.** Returning the live
+   `MediaMetadata` gave the page an unblocked write channel: WebCore
+   propagates in-place mutation to the lock screen with no setter involved.
+5. **A pause in the bridge-not-ready window cancels pending autoplay** —
+   otherwise the flushed pause is answered by the auto-resume.
+
+Verification gates as run: gate 1 passed (13 JSContext tests; 119 unit
+total), gate 2 passed ("MediaSession owned", playback intact), gate 3
+**split by the device**: backgrounding survival needed the in-page pause
+replay (`ed33c23` — process suspension outruns the native round trip;
+simulator can't show this) and the app session had to yield to WebKit's
+(`0837067` — rival AVAudioSessions bounced interruptions at every
+foreground return). The card-buttons verdict itself: **pending** a locked-
+device check, recorded in CLAUDE.md §12.
