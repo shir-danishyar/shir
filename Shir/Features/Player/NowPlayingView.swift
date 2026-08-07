@@ -10,24 +10,38 @@ import SwiftUI
 ///
 /// Everything is the accent colour and everything is large. That is the whole
 /// visual idea — this screen has one job and does not hedge about it.
+///
+/// This is a layer in `RootTabView`'s `ZStack`, not a `fullScreenCover`. A
+/// `.fullScreen` presentation removes the presenting view from the window once
+/// it settles, so a pull-down would expose black rather than the library behind
+/// — measured, not assumed. Being a sibling of the offstage web-view host also
+/// retires an entire UIKit presentation lifecycle, which §9 records being burned
+/// by twice.
 struct NowPlayingView: View {
     @Environment(PlaybackCoordinator.self) private var playback
     @Environment(LibraryStore.self) private var library
-    @Environment(\.dismiss) private var dismiss
+
+    /// Closes the screen. An explicit closure rather than
+    /// `@Environment(\.dismiss)` because this is no longer a presentation —
+    /// it is a layer in `RootTabView`'s stack, and `dismiss` has nothing to
+    /// act on.
+    let onDismiss: () -> Void
 
     @State private var isShowingQueue = false
     @State private var scrubPosition: TimeInterval = 0
+    @State private var drag = NowPlayingDragPolicy()
 
     var body: some View {
         // The stage needs a width it does not have to negotiate for, and a
         // VStack cannot give it one — see `stage(width:)`. Reading the width
-        // once here is what makes the size definite.
+        // once here is what makes the size definite. The height is read for a
+        // second reason: it is what a pull-down is measured against.
         GeometryReader { proxy in
             ZStack {
                 Theme.background.ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    header
+                    header(screenHeight: proxy.size.height)
                     stage(width: proxy.size.width)
                     scrubber
                     trackInfo
@@ -37,6 +51,11 @@ struct NowPlayingView: View {
                     secondaryControls
                 }
             }
+            // Deliberately no scale and no corner rounding while dragging:
+            // scaling would resize the web view's frame on every frame and make
+            // WebKit re-lay-out the page sixty times a second for decoration.
+            .offset(y: drag.offset)
+            .simultaneousGesture(dismissDrag(screenHeight: proxy.size.height))
         }
         .sheet(isPresented: $isShowingQueue) {
             QueueView()
@@ -46,7 +65,7 @@ struct NowPlayingView: View {
 
     // MARK: - Header
 
-    private var header: some View {
+    private func header(screenHeight: CGFloat) -> some View {
         ZStack {
             VStack(spacing: 1) {
                 Text("PLAYING FROM")
@@ -58,7 +77,7 @@ struct NowPlayingView: View {
             }
 
             HStack {
-                Button { dismiss() } label: {
+                Button { animateOut(screenHeight: screenHeight) } label: {
                     Image(systemName: "chevron.down")
                         .font(.system(size: 19, weight: .semibold))
                         .foregroundStyle(Theme.primaryText)
@@ -77,6 +96,45 @@ struct NowPlayingView: View {
         }
         .padding(.horizontal, 6)
         .padding(.bottom, 6)
+    }
+
+    // MARK: - Pull down to dismiss
+
+    /// The one way out, shared by the chevron and the pull so that tapping and
+    /// dragging produce the same motion rather than two different dismissals.
+    private func animateOut(screenHeight: CGFloat) {
+        withAnimation(.snappy(duration: 0.25), completionCriteria: .logicallyComplete) {
+            drag.settle(at: screenHeight)
+        } completion: {
+            onDismiss()
+            drag.reset()
+        }
+    }
+
+    /// Attached with `simultaneousGesture` rather than `gesture`: a plain
+    /// `.gesture` on a container enters arbitration against every Button and
+    /// Slider inside it and loses unpredictably. Running alongside them keeps
+    /// the transport buttons and the heart behaving normally — a tap still
+    /// fires, a drag that leaves the button does not — and leaves
+    /// `NowPlayingDragPolicy`, rather than SwiftUI, deciding when not to move.
+    ///
+    /// The stage needs nothing special: the web view has
+    /// `isUserInteractionEnabled = false`, so touches over the video already
+    /// fall through to here.
+    private func dismissDrag(screenHeight: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: NowPlayingDragPolicy.directionLockDistance)
+            .onChanged { value in
+                drag.update(translation: value.translation, isScrubbing: playback.isScrubbing)
+            }
+            .onEnded { value in
+                switch drag.resolve(predictedEnd: value.predictedEndTranslation,
+                                    screenHeight: screenHeight) {
+                case .dismiss:
+                    animateOut(screenHeight: screenHeight)
+                case .restore:
+                    withAnimation(.snappy(duration: 0.3)) { drag.reset() }
+                }
+            }
     }
 
     // MARK: - Stage

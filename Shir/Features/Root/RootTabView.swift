@@ -59,10 +59,45 @@ struct RootTabView: View {
             .background(Theme.background.ignoresSafeArea())
 
             if playback.hasActiveTrack {
-                MiniPlayerBar { isShowingNowPlaying = true }
+                MiniPlayerBar { withAnimation(.snappy(duration: 0.3)) { isShowingNowPlaying = true } }
                     // Sits directly above the tab bar rather than over it.
                     .padding(.bottom, 49)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            // Not a `fullScreenCover`: that presentation style removes the
+            // presenting view from the window once it settles, so there would
+            // be nothing behind the player for a pull-down to reveal — black,
+            // measured on a 200pt probe offset. The layer's own
+            // `Theme.background.ignoresSafeArea()` is what covers the status
+            // bar and the tab bar, so this must NOT ignore safe areas itself:
+            // that would slide the header under the clock.
+            if isShowingNowPlaying {
+                NowPlayingView(onDismiss: { isShowingNowPlaying = false })
+                    // Removal is `.identity` because the exit animation has
+                    // already carried the layer off the bottom by the time it
+                    // goes away — a removal transition would slide it twice.
+                    .transition(.asymmetric(insertion: .move(edge: .bottom),
+                                            removal: .identity))
+                    .zIndex(1)
+                    // The VoiceOver isolation a modal presentation gave for
+                    // free. As a sibling layer, the library and the tab bar
+                    // stay in the accessibility tree behind the player, so
+                    // VoiceOver would otherwise swipe straight into them.
+                    //
+                    // `.accessibilityHidden` on those views does *not* work
+                    // here — measured against a live tree dump: SwiftUI
+                    // flattens their children into this same container, where
+                    // they escape a modifier attached to their parent.
+                    // `isModal` is judged against siblings instead, which is
+                    // exactly the relationship that holds. It has to follow
+                    // `.contain`, because a trait needs an element to sit on.
+                    //
+                    // It does not affect XCUITest, which enumerates the whole
+                    // snapshot regardless of modality — a UI test that wants
+                    // to know the player is up must assert on the player.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityAddTraits(.isModal)
             }
         }
         .animation(.snappy(duration: 0.25), value: playback.hasActiveTrack)
@@ -70,10 +105,7 @@ struct RootTabView: View {
         // does. It is also what makes playback start at all — see
         // `userPlaybackToken` in PlaybackCoordinator.
         .onChange(of: playback.userPlaybackToken) {
-            isShowingNowPlaying = true
-        }
-        .fullScreenCover(isPresented: $isShowingNowPlaying) {
-            NowPlayingView()
+            withAnimation(.snappy(duration: 0.3)) { isShowingNowPlaying = true }
         }
         .alert(
             "Playback problem",
