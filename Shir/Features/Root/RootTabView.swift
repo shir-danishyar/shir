@@ -39,7 +39,6 @@ struct RootTabView: View {
                         height: (proxy.size.width / Theme.videoAspectRatio).rounded()
                     )
             }
-            .accessibilityHidden(isShowingNowPlaying)
 
             TabView(selection: $selection) {
                 FavoritesView()
@@ -58,17 +57,12 @@ struct RootTabView: View {
             // The opaque backdrop that occludes the offstage web view, so no
             // screen's own translucency can let the video bleed through.
             .background(Theme.background.ignoresSafeArea())
-            // A sibling layer leaves the library in the accessibility tree,
-            // where a UI-test query can match a row underneath the player.
-            // This restores the isolation the modal presentation gave free.
-            .accessibilityHidden(isShowingNowPlaying)
 
             if playback.hasActiveTrack {
                 MiniPlayerBar { withAnimation(.snappy(duration: 0.3)) { isShowingNowPlaying = true } }
                     // Sits directly above the tab bar rather than over it.
                     .padding(.bottom, 49)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .accessibilityHidden(isShowingNowPlaying)
             }
 
             // Not a `fullScreenCover`: that presentation style removes the
@@ -86,6 +80,24 @@ struct RootTabView: View {
                     .transition(.asymmetric(insertion: .move(edge: .bottom),
                                             removal: .identity))
                     .zIndex(1)
+                    // The VoiceOver isolation a modal presentation gave for
+                    // free. As a sibling layer, the library and the tab bar
+                    // stay in the accessibility tree behind the player, so
+                    // VoiceOver would otherwise swipe straight into them.
+                    //
+                    // `.accessibilityHidden` on those views does *not* work
+                    // here — measured against a live tree dump: SwiftUI
+                    // flattens their children into this same container, where
+                    // they escape a modifier attached to their parent.
+                    // `isModal` is judged against siblings instead, which is
+                    // exactly the relationship that holds. It has to follow
+                    // `.contain`, because a trait needs an element to sit on.
+                    //
+                    // It does not affect XCUITest, which enumerates the whole
+                    // snapshot regardless of modality — a UI test that wants
+                    // to know the player is up must assert on the player.
+                    .accessibilityElement(children: .contain)
+                    .accessibilityAddTraits(.isModal)
             }
         }
         .animation(.snappy(duration: 0.25), value: playback.hasActiveTrack)
