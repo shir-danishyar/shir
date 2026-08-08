@@ -89,7 +89,7 @@ final class PlaybackCoordinator {
     /// UI showed as idle.
     ///
     /// There are no status writes here. The correction over the reverted
-    /// `53cdda6`: the page's action handler pauses in-page, which
+    /// `f6af7fa`: the page's action handler pauses in-page, which
     /// `AutoResumePolicy` cannot see — so `.pause` must reach
     /// `youtubeEngine.pause()` (via `engine(for:)` whenever the current track
     /// is YouTube) for `notePause()` to run, or the policy treats the
@@ -221,9 +221,10 @@ final class PlaybackCoordinator {
     /// Called when the app leaves the foreground.
     ///
     /// Deliberately does nothing. This used to pause YouTube tracks, because
-    /// the app was aiming at the App Store and backgrounding the IFrame player
-    /// is the specific behaviour that got Musi removed. Shir is now a
-    /// personal-device build (CLAUDE.md §2), so both sources keep playing.
+    /// the app was aiming at the App Store, where keeping the IFrame player
+    /// running with the app backgrounded is the specific behaviour that gets a
+    /// client pulled. Shir is now a personal-device build (CLAUDE.md §4), so
+    /// both sources keep playing.
     ///
     /// Kept as a hook rather than deleted: it is the single place to reinstate
     /// the pause if this app is ever pointed back at the App Store, and the

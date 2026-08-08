@@ -24,11 +24,11 @@ that pays off here.
 ### Non-goals
 
 - App Store distribution. Explicitly abandoned; see `CLAUDE.md` §2 for the revert path.
-- Stream extraction (InnerTube + PoToken + `AVPlayer`). This is what Musi did and what
-  FreeTube and LibreTube do. It requires executing Google's BotGuard interpreter *and*
-  YouTube's own cipher JavaScript — two remote-code-execution dependencies, and the DMCA
-  §1201 surface the NMPA alleged against Musi. Out of scope unless Phase 0 fails and we
-  consciously revisit.
+- Stream extraction (InnerTube + PoToken + `AVPlayer`). This is what FreeTube and
+  LibreTube do. It requires executing Google's BotGuard interpreter *and* YouTube's own
+  cipher JavaScript — two remote-code-execution dependencies, and the DMCA §1201 surface
+  rightsholders have alleged against clients that do it. Out of scope unless Phase 0 fails
+  and we consciously revisit.
 - General web ad blocking. A `WKContentRuleList` compiled from EasyList would block
   trackers and banners. It buys page weight and privacy, not silence. Deferred; §5 keeps
   the seam clean.

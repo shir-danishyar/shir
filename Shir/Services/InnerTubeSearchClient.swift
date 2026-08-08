@@ -1,7 +1,7 @@
 import ShirKit
 import WebKit
 
-/// Searches YouTube with no API key, from inside a first-party page.
+/// Searches YouTube with no API key and no account.
 ///
 /// It runs YouTube's own search request from inside a real, first-party
 /// `m.youtube.com` document. That buys three things a native `URLSession`

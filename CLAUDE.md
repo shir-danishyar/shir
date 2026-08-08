@@ -53,13 +53,40 @@ xcodebuild -project Shir.xcodeproj -scheme Shir \
 
 ./scripts/screenshots.sh              # regenerates screenshots/
 ./scripts/extract-brave-scriptlets.py --list    # harvest filter data from Brave
+./scripts/make-app-icon.py --preview  # rebuilds AppIcon.appiconset from docs/logo/
 ```
+
+The app icon is **generated, but committed** — `AppIcon-{light,dark,tinted}.png`
+are build inputs, so they live in the asset catalogue. Re-run the script after
+replacing `docs/logo/shir-icon-source.png`; do not hand-edit the PNGs.
 
 `Shir.xcodeproj` is **generated** and gitignored. Edit `project.yml`, never the
 project file. Nothing else needs configuring — search takes no API key.
 
-Deploying to a physical device needs a signing team set in Xcode. That step is
-manual and interactive; an agent cannot do it.
+Deploying to a physical device needs a signing team. It is **not** committed —
+this repo is public and a team id is personal to an Apple developer account.
+`project.yml` reads it from the environment, so export it before generating:
+
+```bash
+export SHIR_DEVELOPMENT_TEAM=<your team id>   # then: xcodegen generate
+```
+
+Unset, XcodeGen writes the `${SHIR_DEVELOPMENT_TEAM}` token through literally
+and Xcode expands the undefined setting to empty — so simulator builds and
+`./scripts/typecheck-ios.sh` work untouched on a fresh clone. (XcodeGen's docs
+say a missing variable is *removed*; the source leaves the token in place.
+Verified, because the difference decides whether a clone builds.)
+
+**A device build with it unset fails**, and the failure is confusing because it
+is Xcode's *destination*, not your code: `Signing for "Shir" requires a
+development team`. Pressing ▶ with an iPhone or "Any iOS Device" selected hits
+this; switching the destination to a simulator does not. Export and regenerate.
+The Xcode Signing & Capabilities route also works, but it writes into the
+generated project, so the next `xcodegen generate` discards it.
+
+A `configFiles`/xcconfig alternative was tried and rejected: XcodeGen fails spec
+validation outright when the referenced file is absent, so a fresh clone could
+not generate a project at all. The env var degrades; a config file does not.
 
 ---
 
@@ -155,11 +182,11 @@ positions are recorded because the trade matters more than the outcome.
 **What the constraint used to be.** Until that date the app played YouTube
 through the official IFrame Player, ads intact, pausing in the background. The
 reasoning was sound *for a shipping product*: App Store Guideline 5.2.1 rejects
-ad-stripping YouTube clients. Apple removed Musi in September 2024 after
-complaints from IFPI, Sony, the NMPA and YouTube. Musi sued *Apple*, not the
-other way round, and lost with prejudice in March 2026 — Judge Eumi Lee held
-that Apple's developer agreement lets it delist any app "at any time, with or
-without cause". Musi's law firm was sanctioned.
+ad-stripping YouTube clients, and rightsholder complaints have repeatedly been
+enough to get one delisted. Apple's developer agreement lets it remove any app
+"at any time, with or without cause", and courts have upheld that — so no
+technical argument about which API a client uses protects it. Distribution is
+the chokepoint, not the API.
 
 **What changed.** Nothing about the law — the *distribution target*. 5.2.1
 governs App Store review; it does not reach an app signed with your own
@@ -182,7 +209,7 @@ certificate on your own device.
 2. `PlaybackCoordinator.applicationDidEnterBackground()` pauses YouTube tracks.
 3. No script injection of any kind into YouTube pages.
 4. Search through the official Data API v3 with a user-supplied key.
-   `git show c7fc009:ShirKit/Sources/ShirKit/YouTube/YouTubeSearchClient.swift`
+   `git show 4b5d89b:ShirKit/Sources/ShirKit/YouTube/YouTubeSearchClient.swift`
    has the whole implementation, tests included.
 
 ---
@@ -504,7 +531,7 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 - **Use context7 for library and API documentation**, including Apple's. This
   project depends on WebKit behaviour that changes between iOS releases.
 - **Verify, don't assert.** This project has been wrong four times from
-  reasoning instead of checking: the Musi legal history, whether WebKit can play
+  reasoning instead of checking: the App Store legal position, whether WebKit can play
   audio backgrounded, whether the suggestion endpoint sends CORS headers, and
   whether tapping a song should save it. Each was settled by going and looking.
   Read the source, run the code, quote the file and line.
@@ -567,7 +594,7 @@ Record provenance in a comment whenever you adapt code from any of these.
 **Not built:**
 
 - **Lock-screen controls for YouTube tracks: implemented, device verdict
-  pending.** The `53cdda6` approach (reverted on simulator evidence the commit
+  pending.** The `f6af7fa` approach (reverted on simulator evidence the commit
   itself called unanswerable there) is restored per the 2026-08-06 spec in
   `docs/superpowers/specs/`, with its one real bug corrected: a remote `.pause`
   now routes through `youtubeEngine.pause()` so `AutoResumePolicy` learns the

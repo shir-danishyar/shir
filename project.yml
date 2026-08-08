@@ -50,7 +50,23 @@ targets:
         ENABLE_USER_SCRIPT_SANDBOXING: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        DEVELOPMENT_TEAM: D26BZ945D3
+        # Not hardcoded: this repo is public, and a team id is personal to an
+        # Apple developer account. XcodeGen expands ${VAR} from the environment
+        # at generate time, so the id only ever reaches the generated (and
+        # gitignored) .xcodeproj — never a tracked file.
+        #
+        # Unset, the token is written through *literally* and Xcode expands the
+        # undefined build setting to empty. Simulator builds and typecheck-ios.sh
+        # are fine that way; a DEVICE build then fails with "Signing for 'Shir'
+        # requires a development team". So export it before generating whenever
+        # you intend to build for hardware:
+        #
+        #     export SHIR_DEVELOPMENT_TEAM=<team id> && xcodegen generate
+        #
+        # A configFiles/xcconfig alternative was tried and rejected: XcodeGen
+        # refuses to generate at all when the referenced file is missing, so a
+        # fresh clone could not build anything.
+        DEVELOPMENT_TEAM: ${SHIR_DEVELOPMENT_TEAM}
         CODE_SIGN_STYLE: Automatic
         # Device builds must be signed or iOS refuses to launch them
         # ("The executable is not codesigned"). The simulator has no such

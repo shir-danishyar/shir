@@ -9,8 +9,8 @@ import SwiftUI
 /// - typing → live YouTube autocomplete
 /// - submitted, or focus dropped → results
 ///
-/// This is also the half of the architecture that keeps the web view a
-/// dumb player: the video id flows app → player and never the reverse. The user
+/// This is also the half of the architecture that keeps the web view a dumb
+/// player: the video id flows app → player and never the reverse. The user
 /// never sees YouTube's interface, which is both the right product shape and
 /// the reason the page's own search box — which used to crash the app when
 /// tapped — is unreachable.

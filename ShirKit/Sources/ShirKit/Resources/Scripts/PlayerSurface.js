@@ -1,8 +1,8 @@
 // PlayerSurface.js — turn m.youtube.com into a bare player.
 //
-// This is the architecture: the app provides search, playlists and a
-// queue, and the web view is a dumb surface that shows video and nothing else.
-// The user never sees or touches YouTube's interface.
+// The app provides search, playlists and a queue; the web view is a dumb
+// surface that shows video and nothing else. The user never sees or touches
+// YouTube's interface.
 //
 // That is not only cosmetic. Letting touches reach YouTube's chrome crashed the
 // app outright — UIKit threw from UIGestureGraph addUniqueEdgeWithLabel while
