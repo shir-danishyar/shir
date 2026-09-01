@@ -89,7 +89,7 @@ final class PlaybackCoordinator {
     /// UI showed as idle.
     ///
     /// There are no status writes here. The correction over the reverted
-    /// `f6af7fa`: the page's action handler pauses in-page, which
+    /// `cf5e582`: the page's action handler pauses in-page, which
     /// `AutoResumePolicy` cannot see — so `.pause` must reach
     /// `youtubeEngine.pause()` (via `engine(for:)` whenever the current track
     /// is YouTube) for `notePause()` to run, or the policy treats the

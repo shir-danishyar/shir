@@ -1,12 +1,12 @@
 # Lock-screen controls for YouTube tracks — design
 
-2026-08-06. Restores and corrects the reverted attempt `f6af7fa` (revert
-`582df60`). The revert was made after checking the **simulator** lock screen —
+2026-08-06. Restores and corrects the reverted attempt `cf5e582` (revert
+`f0bc5a2`). The revert was made after checking the **simulator** lock screen —
 the one signal the original commit itself said could not answer the question.
 The approach was never disproven where it counts: a locked physical device.
 
-> **As built, 2026-08-07:** implemented in `d3eef02` with device-driven
-> companions `9bdcbf7`, `fe4bb41`, `297c753`. Implementation overruled this
+> **As built, 2026-08-07:** implemented in `1df4a00` with device-driven
+> companions `73cd902`, `3cf1442`, `24ca335`. Implementation overruled this
 > design in five places — see "As built" at the end. Where this document and
 > the code disagree, the code and CLAUDE.md are right.
 
@@ -23,7 +23,7 @@ Every claim below was checked against primary sources this session, not
 recalled. WebKit line numbers are from `main` on 2026-08-06 and will drift.
 
 1. **The host app cannot own the card while web media plays.** WebKit's GPU
-   process (not WebContent — a correction to `f6af7fa`'s analysis) publishes
+   process (not WebContent — a correction to `cf5e582`'s analysis) publishes
    Now Playing info straight into MediaRemote with
    `MRMediaRemoteSetNowPlayingInfoWithMergePolicy(info, MRMediaRemoteMergePolicyReplace)`
    on a self-re-arming ~5s timer, attributed to the host app via
@@ -87,7 +87,7 @@ and on bridge `ready` writes Shir's own title/artist/artwork into the page's
 
 ## Components
 
-| Piece | Status vs `f6af7fa` |
+| Piece | Status vs `cf5e582` |
 |---|---|
 | `ShirKit/Resources/Scripts/MediaSession.js` | Restored as-is. Injected **first** in `PlayerScripts.player` so it captures the pristine `MediaSession` prototype at document start. Owns `setActionHandler` and `metadata` with `configurable:false` accessors that swallow page writes; nulls `seekforward`/`seekbackward` (they occupy the same two lock-screen slots as previous/next); registers `nexttrack`, `previoustrack`, `play`, `pause`, `seekto`; pushes position state on element events + 5s heartbeat; exposes `window.__shirMedia` (setMetadata / install / probe) |
 | `RemoteCommand` enum (`PlaybackEngine.swift`) | Restored: `.play .pause .next .previous .seek(TimeInterval)`. Sits beside `EngineState` (~line 12). Not part of the `PlaybackEngine` protocol — `LocalAudioEngine`'s remote path is `MPRemoteCommandCenter` and works; a no-op property would fake a symmetry that does not exist |
@@ -95,14 +95,14 @@ and on bridge `ready` writes Shir's own title/artist/artwork into the page's
 | `PlaybackCoordinator` | **Corrected.** `youtube.onRemoteCommand` wired in `init` beside `wire()` calls. Routing: `.next → next()`, `.previous → previous()`, `.play → youtubeEngine.play()`, `.pause → youtubeEngine.pause()`, `.seek(t) → seek(to: t)`. **No status writes in the handler at all** — status flows through the existing state pipeline (page changes state → Bridge reports → `handle(state:from:)`). One control path for UI and lock screen alike. The existing `configureRemoteCommands()` / `updateNowPlayingInfo()` block stays untouched — it is the local-engine path |
 | `MediaSessionScriptTests` | Restored 9 JSContext tests. The `context(loading:shims:)` harness and base shims move from `PlayerScriptsTests`-private to a shared test-support file so two suites don't grow two shim stacks; MediaSession tests add `navigator.mediaSession` / `MediaMetadata` shims following the `bridgeShims` pattern |
 
-## The remote-pause correction (why `f6af7fa` needed changing)
+## The remote-pause correction (why `cf5e582` needed changing)
 
 The reverted code handled a remote `.pause` by writing `status = .paused`
 directly. But the page's action handler pauses the video in-page, so
 `AutoResumePolicy` — which arms on `engine.pause()` — never learns the pause
 was requested. Bridge.js then reports `"paused"`, the engine sees an
 unrequested pause, and auto-resumes: **a lock-screen pause would un-pause
-itself ~300ms later.** (The auto-resume machinery predates `f6af7fa`; the
+itself ~300ms later.** (The auto-resume machinery predates `cf5e582`; the
 interaction was missed.)
 
 Fix: route `.pause` through `youtubeEngine.pause()`. Ordering makes this
@@ -115,7 +115,7 @@ in-page `pauseVideo()` is covered by the documented outcome guarantee
 
 ## Error handling
 
-Unchanged from `f6af7fa`, because it was right: the locks swallow rather
+Unchanged from `cf5e582`, because it was right: the locks swallow rather
 than throw (YouTube's strict-mode bundle must never take a player-init
 exception — a blank card beats broken playback); metadata pushes fail
 silently but are visible in `__shirMedia.probe()`; every failure path
@@ -131,7 +131,7 @@ degrades to "worse lock screen", never "no music".
    `probe()` JSON showing `hasMetadata: true` with Shir's title, playback
    state transitions. Then lock the simulator and screenshot: buttons
    rendering is a bonus; their absence is **not a verdict** — that mistake
-   is what killed `f6af7fa`.
+   is what killed `cf5e582`.
 3. **Physical device** — the only real gate, explicitly deferred to the
    user's next sideload: play a YouTube track, lock, check card + artwork +
    all four transports, press each, confirm next/previous move **Shir's**
@@ -155,7 +155,7 @@ scripts surface.
 
 ## As built (2026-08-07) — where implementation overruled this design
 
-Implemented in `d3eef02` after a ten-finding adversarial review, then
+Implemented in `1df4a00` after a ten-finding adversarial review, then
 device-tested. The deviations, each with its reason:
 
 1. **`MediaSession.js` was not "restored as-is."** The handlers post the
@@ -180,8 +180,8 @@ device-tested. The deviations, each with its reason:
 Verification gates as run: gate 1 passed (13 JSContext tests; 119 unit
 total), gate 2 passed ("MediaSession owned", playback intact), gate 3
 **split by the device**: backgrounding survival needed the in-page pause
-replay (`9bdcbf7` — process suspension outruns the native round trip;
+replay (`73cd902` — process suspension outruns the native round trip;
 simulator can't show this) and the app session had to yield to WebKit's
-(`fe4bb41` — rival AVAudioSessions bounced interruptions at every
+(`3cf1442` — rival AVAudioSessions bounced interruptions at every
 foreground return). The card-buttons verdict itself: **pending** a locked-
 device check, recorded in CLAUDE.md §12.

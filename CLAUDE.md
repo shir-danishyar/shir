@@ -209,7 +209,7 @@ certificate on your own device.
 2. `PlaybackCoordinator.applicationDidEnterBackground()` pauses YouTube tracks.
 3. No script injection of any kind into YouTube pages.
 4. Search through the official Data API v3 with a user-supplied key.
-   `git show 4b5d89b:ShirKit/Sources/ShirKit/YouTube/YouTubeSearchClient.swift`
+   `git show 1747374:ShirKit/Sources/ShirKit/YouTube/YouTubeSearchClient.swift`
    has the whole implementation, tests included.
 
 ---
@@ -576,16 +576,23 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 Reference clones live in `../youtube-clons/` and are **read-only**. Mine them
 for technique; check the licence before copying anything.
 
+**This repo is public, so distribution obligations are live.** They were not
+while it was one phone's sideload, and that changed the answer in one row
+below: GPL-3.0 scriptlets can no longer be copied in on a personal-use
+argument. What ships is recorded in `THIRD-PARTY-NOTICES.md`; anything adapted
+must be added there as well as commented in place.
+
 | Source | Licence | Reusable here? |
 |---|---|---|
 | `adblock-rust` (Brave engine) | MPL-2.0 | Yes — file-level copyleft |
 | `brave-video-bg-play-update.js`, via `brave-resources.json` | MIT (from `mozilla/video-bg-play`) | **Yes** — the background-playback code to adapt |
-| uBO scriptlets (`json-prune`, `set-constant`) | GPL-3.0 | Personal use only; no distribution means no obligation triggered |
+| uBO scriptlets (`json-prune`, `set-constant`) | GPL-3.0 | **No** — copying one now relicenses this repo GPL-3.0. Study the behaviour, reimplement |
 | NouTube | AGPL-3.0 | No — reimplement the idea |
 | FreeTube | AGPL-3.0 | No |
 | LibreTube | GPL-3.0 | No |
 
-Record provenance in a comment whenever you adapt code from any of these.
+Record provenance in a comment whenever you adapt code from any of these,
+and add the upstream notice to `THIRD-PARTY-NOTICES.md` in the same commit.
 
 ---
 
@@ -594,7 +601,7 @@ Record provenance in a comment whenever you adapt code from any of these.
 **Not built:**
 
 - **Lock-screen controls for YouTube tracks: implemented, device verdict
-  pending.** The `f6af7fa` approach (reverted on simulator evidence the commit
+  pending.** The `cf5e582` approach (reverted on simulator evidence the commit
   itself called unanswerable there) is restored per the 2026-08-06 spec in
   `docs/superpowers/specs/`, with its one real bug corrected: a remote `.pause`
   now routes through `youtubeEngine.pause()` so `AutoResumePolicy` learns the

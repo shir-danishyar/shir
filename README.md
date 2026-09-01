@@ -1,5 +1,17 @@
 # Shir
 
+> **Published for educational purposes.**
+>
+> This repository exists to document a technique and the reasoning behind it: driving a
+> `WKWebView` as a player rather than a browser, keeping injected JavaScript alive across
+> iOS backgrounding, and how far you get with no API key and no account. It is source
+> code and a write-up. There is no binary, no release, and no support.
+>
+> Shir strips YouTube's ads, which breaks YouTube's Terms of Service. "Educational
+> purposes" states intent — it is not a legal shield, and nobody should read it as one.
+> Building and running this is your decision and your risk. If you use YouTube, pay for
+> it: Premium removes the ads and pays the people who made what you are listening to.
+
 An iPhone music app: build playlists, queue songs, play them. Two sources, treated as one
 library.
 
@@ -85,3 +97,12 @@ Early, and honest about it. Playback, playlists, queue, search, trending and imp
 work. Known gaps are listed in `CLAUDE.md` §12 — among them: no search pagination, no play
 history (so "Recently Played" duplicates "Recently Added"), four Now Playing buttons laid
 out but not wired, and non-embeddable videos not being skipped.
+
+## Licence
+
+MIT — see [`LICENSE`](LICENSE).
+
+One file, `ShirKit/Sources/ShirKit/Resources/Scripts/BackgroundPlay.js`, is adapted from
+MIT-licensed code by Mozilla, by way of Brave. That attribution and the upstream notice
+are in [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md), together with the projects
+whose techniques were studied and whose code was deliberately not copied.
