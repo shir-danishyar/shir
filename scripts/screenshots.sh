@@ -18,6 +18,14 @@ xcodebuild \
   >/dev/null
 
 SIM_ID="$(xcrun simctl list devices | grep -m1 "$DEVICE (" | sed -E 's/.*\(([A-F0-9-]{36})\).*/\1/')"
+
+# xcodebuild shuts the simulator down when the run ends, and get_app_container
+# refuses on a Shutdown device ("Unable to lookup in current state: Shutdown").
+# Without this the tour succeeds and the copy fails, which reads like the
+# screenshots were never taken. Boot it back up before the lookup.
+xcrun simctl boot "$SIM_ID" 2>/dev/null || true
+xcrun simctl bootstatus "$SIM_ID" >/dev/null 2>&1 || true
+
 CONTAINER="$(xcrun simctl get_app_container "$SIM_ID" "$RUNNER_BUNDLE_ID" data)"
 
 mkdir -p "$OUT_DIR"
