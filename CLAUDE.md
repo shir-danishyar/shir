@@ -480,7 +480,7 @@ Everything below cost real debugging time. Scan this before diagnosing anything.
 | An injected script "runs" but has no effect | It is in `.defaultClient`, patching globals the page never sees | `WKContentWorld.page`, `.atDocumentStart` |
 | Adding a field to `Library` empties everyone's library | Synthesized `Decodable` throws `keyNotFound`; `LibraryStore` reacts to a decode failure by starting empty | `Library.init(from:)` uses `decodeIfPresent` defaults — **keep it** |
 | App crashes on touching the web view | WKWebView and YouTube gesture recognizers form a conflicting edge in `UIGestureGraph` | `isUserInteractionEnabled = false`. It is a player, not a browser |
-| Every search crashes the app | A key provider using `MainActor.assumeIsolated`, called from a background context | Read the keychain directly, or keep the call off the main actor |
+| Every search crashes the app | `MainActor.assumeIsolated` traps instead of hopping when it is called off the main actor. The since-removed Data API key provider did exactly this | Never assume isolation you do not have — read the value directly, or make the call async |
 | Video plays but there is no sound | WebKit only allows unattended autoplay when muted; YouTube complies and waits for a tap | `Bridge.js` unmutes on every `playing` transition, and at wire-up if already playing. Not a timer — 900ms of delay was 900ms of silent intro |
 | Ads replaced by a 4–16s spinner | SABR `backoffTimeMs` still covers the removed ad slot | Port `brave-yt-sabr-fix.js` |
 | First song of a session plays an ad | `ytInitialData` is server-rendered and never passes through `fetch`/`XHR` | Intercept with `Object.defineProperty` |
